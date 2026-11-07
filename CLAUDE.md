@@ -29,6 +29,14 @@
 - El anti-trampas del juego (`clean()`) sólo mira el reloj, propiedades propias del jugador
   (hurt/update/heal/gainXp) y límites de stats: no tocar nada de eso.
 
+## Copia / mover la partida (en el Analizador)
+- El juego publicado ya NO expone `importSave`; el ayudante exporta `G.DB.save` como JSON y lo
+  importa con una fusión propia (`mergeInto`): unión de colecciones (owned, shiny, legends…),
+  máximo en números (mejoras, monedas, stats). Nunca borra; pensado para llevar la partida a una
+  cuenta nueva de nombre y contraseña. Es DATO del jugador, no credenciales de Google.
+- Cross-Xray (Firefox): exportar con `W.JSON.stringify`, aplicar con `W.JSON.parse` y copiar claves
+  al objeto real `G.DB.save` (misma referencia); luego `G.DB.commit`/`saveNow`.
+
 ## App Android (`android/`)
 - WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar) e inyecta el
   userscript con `addDocumentStartJavaScript` («modo ayudante», con nombre y contraseña).
