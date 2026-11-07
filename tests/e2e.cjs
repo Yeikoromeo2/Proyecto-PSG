@@ -50,13 +50,49 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.waitForFunction(() => { const t = document.getElementById('tap-start'); return !t || t.offsetParent === null; }, null, { timeout: 5000 })
     .catch(() => page.evaluate(() => document.getElementById('tap-start').remove()));
 
-  // Partida de invitado con Pikachu.
+  // Invitado con una pequeña colección.
   await page.evaluate(() => {
     G.DB.playAsGuest();
     const s = G.DB.save;
-    s.partner = 25; s.owned[25] = { at: Date.now(), from: 'starter' };
-    G.Game.startRun();
+    for (const d of [1, 4, 7, 25, 94, 130, 149, 448, 445, 658]) s.owned[d] = { at: Date.now(), from: 'gacha' };
+    s.partner = 25;
   });
+  // Naturaleza que baja justo el ataque con el que pega su plan (Firme si es especial, Modesta si es físico).
+  await page.evaluate(() => {
+    const side = window.__psgMod.analyzer.analyze(25).side;
+    G.DB.save.pnat[25] = [side === 'special' ? 'adamant' : 'modest', Date.now()];
+  });
+
+  // 0) Analizador de colección.
+  check(await page.evaluate(() => !!document.getElementById('psg-an-btn')), 'botón «Analizador PSG» en el menú principal');
+  await page.evaluate(() => window.__psgMod.analyzer.open());
+  const an = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#psg-an .psg-row').length,
+    owned: Object.keys(G.DB.save.owned).length,
+    pika: (() => { const r = window.__psgMod.analyzer.analyze(25); return { natV: r.natV, side: r.side, best: r.bestNat.id, plan: r.plan.length, evo: r.evoStats, ab: r.abV }; })()
+  }));
+  check(an.rows === an.owned, `una fila por Pokémon de la colección (${an.rows}/${an.owned})`);
+  check(an.pika.plan === 4, 'plan de 4 ataques');
+  const goodFor = an.pika.side === 'special' ? ['modest', 'mild'] : ['adamant', 'lonely'];
+  check(an.pika.natV === 'mala' && goodFor.includes(an.pika.best),
+    `naturaleza que baja su ataque principal → «mala» y Menta que lo sube (${an.pika.side}: ${an.pika.natV}, ${an.pika.best})`);
+  console.log('       Pikachu → mejoras para evolucionar:', an.pika.evo.join(', '), '· habilidad:', an.pika.ab);
+  await page.click('#psg-an .psg-row[data-dex="25"]');
+  const det = await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-det h4')].map(h => h.textContent.trim()));
+  check(det.length === 3, 'detalle con naturaleza, habilidad y plan: ' + det.join(' | '));
+  if (SHOTS) {
+    await page.screenshot({ path: path.join(SHOTS, 'analizador.png') });
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.screenshot({ path: path.join(SHOTS, 'analizador-vertical.png') });
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[2].scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, 'analizador-plan.png') });
+    await page.setViewportSize({ width: 915, height: 412 });
+  }
+  await page.evaluate(() => window.__psgMod.analyzer.close());
+
+  // Partida con Pikachu.
+  await page.evaluate(() => G.Game.startRun());
   await page.waitForFunction(() => G.Game.state === 'playing' && G.Game.player, null, { timeout: 15000 });
 
   const openCards = async () => {

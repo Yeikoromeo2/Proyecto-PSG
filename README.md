@@ -1,7 +1,30 @@
 # Proyecto PSG · Ayudante para PokéSurvivor
 
-Script que se ejecuta **dentro de [PokéSurvivor](https://pokesurvivor.com)** y te
-ayuda con las cartas que salen al subir de nivel:
+Script que se ejecuta **dentro de [PokéSurvivor](https://pokesurvivor.com)** con dos partes:
+un **analizador de tu colección** y una **ayuda con las cartas** que salen al subir de nivel.
+
+## Analizador de colección
+
+En el menú principal aparece el botón **Analizador PSG** (debajo de *Pokémon*). Abre una
+lista con todos tus Pokémon, ordenable por *Más potentes*, *Naturaleza o habilidad a revisar*,
+*Más usados* o *Nº de Pokédex*, y con buscador. Tocando uno ves:
+
+- **Naturaleza** (✅ ideal/buena · ➖ normal/neutra · ⚠️ floja · ❌ mala): se juzga según el
+  lado con el que pega su mejor plan (físico o especial). Si no es la ideal, te dice qué
+  **Menta** comprar (Firme / Modesta, o Huraña / Afable si su plan mezcla los dos lados).
+- **Habilidad**: qué hace, y cómo rinde cada una de sus opciones (también la oculta) sobre
+  su plan. Si otra le da claramente más daño, te dice qué **Cápsula** usar.
+- **Plan de 4 ataques**: los que más daño le darían ya evolucionados, con su **combo de
+  evolución** (ataque al máximo + la mejora de stat que pide → «Ataque +») y las mejoras de
+  stat que conviene coger en la partida.
+- **Movimiento inicial**: si el que tiene está en su plan o cuál le iría mejor.
+- **MT** que entrarían en su plan, y la tabla con todos sus ataques posibles.
+
+La «Potencia» es un índice aproximado (daño × proyectiles ÷ recarga, con extra para los
+ataques de área, su naturaleza, su habilidad y el bonus de Pokémon de un solo tipo),
+comparado con el mejor de tu colección. Sirve para comparar, no es el daño exacto.
+
+## Ayuda con las cartas de nivel
 
 - **Selector de cartas:** marca la mejor de las 3 con una ★ y explica por qué
   (evolución lista, desbloquea una evolución, ataque de tu lado fuerte, vida baja…).
@@ -43,7 +66,7 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.1.0 activo».
+   Al cargar verás el aviso «Ayudante PSG 0.2.0 activo».
 
 Si no aparece ese aviso: en Violentmonkey, abre el script y comprueba que el modo de
 inyección es **page** (el script ya lo pide con `@inject-into page`).
@@ -69,7 +92,9 @@ Heurística sencilla, pensada para ajustarla con la experiencia:
 
 ## Cómo funciona por dentro
 
-El juego deja sus módulos en `window.G`. El script espera a que existan y envuelve
+El juego deja sus módulos en `window.G`. El analizador sólo lee (con las funciones del
+propio juego: `G.Mons`, `G.Moves`, `G.AbilityFX`, `G.Stats`), así que la naturaleza y la
+habilidad que te tocaron salen igual que en el juego. Para las cartas, envuelve
 sólo tres funciones: `G.LevelUp.offer` (las cartas), `G.RunUI.showLevelUp` (la
 pantalla de cartas) y `G.Ranking.submitSolo/submitGroup` (para no subir al ranking
 las partidas en modo libre). No toca tu partida guardada ni los servidores.
@@ -79,8 +104,8 @@ juego sigue funcionando normal.
 ## Pruebas
 
 `tests/e2e.cjs` abre una copia local del juego en un navegador sin ventana (Playwright),
-carga el script y comprueba el selector, el modo automático, el modo libre y el bloqueo
-del ranking:
+carga el script y comprueba el analizador, el selector, el modo automático, el modo libre
+y el bloqueo del ranking:
 
 ```
 node tests/e2e.cjs /ruta/a/una/copia/de/pokesurvivor [carpeta-para-capturas]
