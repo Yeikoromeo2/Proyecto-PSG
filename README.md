@@ -22,11 +22,11 @@ y con buscador. Tocando uno ves:
 - **Plan de 4 ataques**: los que más daño le darían ya evolucionados, con su **combo de
   evolución** (ataque al máximo + la mejora de stat que pide → «Ataque +») y las mejoras de
   stat que conviene coger en la partida.
-- **Copia de seguridad · mover la partida a otra cuenta** (botón **⇄ Copia de partida** del menú principal, o **⇄ Copia** arriba en el Analizador): exporta **tu
-  progreso** (Pokémon, mejoras, naturalezas, MT…) a un archivo o texto, e impórtalo en otra cuenta.
-  **No borra nada**: sólo añade lo que falte. Sirve para pasar tu partida a una cuenta de **nombre y
-  contraseña** (así entras en la app con el ayudante, sin depender de Google). Mueve datos del juego,
-  no el inicio de sesión. Después, pulsa **Guardar** en el juego para subir la partida a la nube.
+- **Copia de seguridad** (botón **⇄ Copia de partida** del menú principal, o **⇄ Copia** arriba en el
+  Analizador): exporta **tu progreso** (Pokémon, mejoras, naturalezas, MT…) a un archivo de respaldo.
+  Sólo lee: no cambia nada. **No hay importar**: el juego guarda la partida en su servidor y quita los
+  Pokémon que se añaden a mano a una cuenta (lo trata como trampa y lleva una lista de cuentas
+  sospechosas). Para mover o recuperar una cuenta hay que pedírselo al autor del juego.
 - **Fijar tu propio plan**: en *Todos sus ataques* toca 📌 junto a los ataques que quieras
   (hasta 4, también potenciadores). Van primero en el plan y los huecos que dejes se rellenan
   con los mejores calculados. *↺ Volver al calculado* lo deshace. Se guarda en este navegador,

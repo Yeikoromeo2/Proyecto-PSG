@@ -161,27 +161,18 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.click('#psg-an [data-reset="25"]');
   check(await page.evaluate(() => !window.__psgMod.analyzer.analyze(25).custom), '«Volver al calculado» quita lo fijado');
   await page.evaluate(id => window.__psgMod.analyzer.togglePin(25, id), other);
-  // Copia de seguridad / mover la partida a otra cuenta.
-  const mig = await page.evaluate(async () => {
+  // Copia de seguridad (sólo lectura): exporta la partida y no cambia nada.
+  const exp = await page.evaluate(() => {
     const A = window.__psgMod.analyzer;
-    // Exporta la partida actual (con su colección) y recuerda qué Pokémon tenía.
+    const before = JSON.stringify(G.DB.save);
     const text = A.exportSave();
-    const minePrev = Object.keys(G.DB.save.owned).map(Number).sort((a, b) => a - b);
-    // Cuenta nueva y vacía.
-    G.DB.playAsGuest();
-    const s = G.DB.save;
-    for (const k of Object.keys(s.owned)) delete s.owned[k];
-    s.owned[7] = { at: 1, from: 'gacha' };      // la cuenta nueva ya tiene uno propio (no se debe perder)
-    s.partner = 7;
-    const r = await A.importSave(text);
-    const after = Object.keys(G.DB.save.owned).map(Number).sort((a, b) => a - b);
-    return { text: typeof text === 'string' && text.length > 50, minePrev, r, after, keep7: !!G.DB.save.owned[7] };
+    const back = JSON.parse(text);
+    return { ok: typeof text === 'string' && text.length > 50, same: JSON.stringify(back.owned) === JSON.stringify(G.DB.save.owned),
+      untouched: JSON.stringify(G.DB.save) === before, noImport: typeof A.importSave === 'undefined' && !document.getElementById('psg-mig-import') };
   });
-  check(mig.text, 'exportar devuelve el texto de la partida');
-  check(mig.r && mig.r.ok, 'importar en la cuenta nueva funciona');
-  check(mig.minePrev.every(d => mig.after.includes(d)), 'la cuenta nueva recibe todos los Pokémon exportados');
-  check(mig.keep7, 'importar no borra lo que ya tenía la cuenta nueva');
-  console.log('       exportados:', mig.minePrev.join(','), '· tras importar:', mig.after.join(','), '· +' + (mig.r && mig.r.added));
+  check(exp.ok && exp.same, 'exportar devuelve la partida completa');
+  check(exp.untouched, 'exportar no cambia nada de la partida');
+  check(exp.noImport, 'no hay importar (el juego trata como trampa añadir Pokémon a mano)');
   // Deja la partida como estaba para el resto de la prueba (y vuelve a fijar el ataque del plan,
   // que iba en la cuenta anterior: los planes fijados se guardan por cuenta).
   await page.evaluate(id => {

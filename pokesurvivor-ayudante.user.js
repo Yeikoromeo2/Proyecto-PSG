@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.2
+// @version      0.9.3
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -38,8 +38,8 @@
  *  - Analizador de colección: botón «Analizador PSG» en el menú principal.
  *    Para cada Pokémon tuyo: potencia y aguante, si su naturaleza y su habilidad le van bien,
  *    propone un plan de 4 ataques con sus combos de evolución, MT y movimiento inicial.
- *    Incluye «Copia de seguridad · mover la partida a otra cuenta»: exporta tu progreso
- *    (Pokémon, mejoras, naturalezas, MT…) e impórtalo en otra cuenta, sin borrar nada.
+ *    Incluye «Copia de seguridad»: exporta tu progreso a un archivo (sólo lectura; el juego no
+ *    permite pasar Pokémon de una cuenta a otra a mano).
  *
  *  - Compatibilidad: el juego declara una Content-Security-Policy en su HTML que
  *    bloquea los scripts añadidos a la página. Si el gestor (Violentmonkey en
@@ -54,7 +54,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.2';
+  const VERSION = '0.9.3';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -638,7 +638,7 @@
       m.className = 'menu-item';
       m.setAttribute('translate', 'no');
       m.innerHTML = '<span class="mi-ico"><span style="font-size:22px;line-height:26px">⇄</span></span>'
-        + 'Copia de partida<small>PSG · exportar e importar tu progreso</small>';
+        + 'Copia de partida<small>PSG · guarda una copia de tu progreso</small>';
       list.insertBefore(m, b.nextSibling);
       m.addEventListener('click', openMigration);
       return true;
@@ -677,12 +677,10 @@
       paint(false);
     }
 
-    // =============== copia de seguridad / mover la partida a otra cuenta ===============
-    // Mueve TU progreso (Pokémon, mejoras, naturalezas, MT…), no el inicio de sesión. El juego
-    // publicado ya no trae «Importar partida», así que lo hace el ayudante con los datos del propio
-    // juego (G.DB.save) y su misma idea: nunca borra nada, sólo añade lo que falte.
-    const PROG_COLL = ['owned', 'shiny', 'legends', 'arenas', 'itemsFound', 'evoMoves', 'ach', 'skins',
-      'dfav', 'pnat', 'pabil', 'pskin', 'pstart', 'pstart2'];
+    // =============== copia de seguridad de la partida (SÓLO LECTURA) ===============
+    // Exporta tu partida (G.DB.save) como archivo/texto de respaldo. NO hay importar: el juego publicado
+    // trata como trampa los Pokémon añadidos a mano a una cuenta (su servidor manda: GET /save,
+    // /eco/pull, lista de sospechosos y baneos) y los quita. No intentar saltarse eso.
 
     function curSave() { return G.DB && G.DB.save; }
     /** La partida actual como texto (JSON). Lee con el JSON de la página (vale también en Firefox aislado). */
@@ -712,66 +710,6 @@
       } catch (e) { toast('Partida exportada: cópiala del recuadro o usa el archivo'); }
     }
 
-    /** Añade a `cur` todo lo de `his` sin borrar nada (colecciones en unión, números al mayor). */
-    function mergeInto(cur, his) {
-      const clone = o => JSON.parse(JSON.stringify(o));
-      for (const k of PROG_COLL) {
-        cur[k] = cur[k] || {}; const h = his[k] || {};
-        for (const d in h) if (!(d in cur[k])) cur[k][d] = clone(h[d]);
-      }
-      cur.ptm = cur.ptm || {};
-      for (const d in his.ptm || {}) cur.ptm[d] = [...new Set((cur.ptm[d] || []).concat(his.ptm[d] || []))];
-      cur.pupg = cur.pupg || {};
-      for (const d in his.pupg || {}) {
-        const m = cur.pupg[d] = cur.pupg[d] || {}, o = his.pupg[d] || {};
-        for (const k in o) m[k] = Math.max(+m[k] || 0, +o[k] || 0);
-      }
-      for (const key of ['upgrades', 'pused', 'bag', 'tms', 'pity', 'stats']) {
-        cur[key] = cur[key] || {}; const o = his[key] || {};
-        for (const d in o) cur[key][d] = Math.max(+cur[key][d] || 0, +o[d] || 0);
-      }
-      cur.tickets = cur.tickets || { t1: 0, t10: 0 };
-      for (const d in his.tickets || {}) cur.tickets[d] = Math.max(+cur.tickets[d] || 0, +his.tickets[d] || 0);
-      cur.coins = Math.max(+cur.coins || 0, +his.coins || 0);
-      if (cur.partner == null || !(cur.owned || {})[cur.partner]) { cur.partner = his.partner; cur.partnerShiny = his.partnerShiny; }
-      if (cur.starter == null) cur.starter = his.starter;
-      if (cur.personality == null) cur.personality = his.personality;
-      if (!cur.profile && his.profile) cur.profile = clone(his.profile);
-      cur.updated = Date.now();
-      return cur;
-    }
-
-    function finishImport() {
-      const d = G.DB;
-      try { if (d.commit) d.commit('import'); } catch (e) { /* nada */ }
-      try { if (d.saveNow) d.saveNow(); } catch (e) { /* nada */ }
-    }
-
-    async function doImport(text) {
-      const d = G.DB, s = curSave();
-      if (!s) { toast('Crea una cuenta o entra primero, luego importa aquí'); return { ok: false }; }
-      let his;
-      try { his = JSON.parse(text); } catch (e) { toast('El texto no es una partida válida'); return { ok: false }; }
-      if (!his || typeof his !== 'object' || !his.owned) { toast('Eso no parece una partida de PokéSurvivor'); return { ok: false }; }
-      const before = Object.keys(s.owned || {}).length;
-      // Si una versión del juego trae su propio importador, se usa (su fusión oficial).
-      if (typeof d.importSave === 'function') {
-        try {
-          const r = await d.importSave(text);
-          if (r && r.ok) { finishImport(); return { ok: true, added: Object.keys((curSave() || {}).owned || {}).length - before }; }
-        } catch (e) { /* si falla, se usa la fusión propia de abajo */ }
-      }
-      // Copia plana de la partida actual, fusión fuera del juego y, al final, se aplica al objeto real.
-      let cur;
-      try { cur = JSON.parse(W.JSON.stringify(s)); } catch (e) { cur = JSON.parse(JSON.stringify(s)); }
-      mergeInto(cur, his);
-      let pageObj;
-      try { pageObj = W.JSON.parse(JSON.stringify(cur)); } catch (e) { pageObj = cur; }
-      for (const k in pageObj) { try { s[k] = pageObj[k]; } catch (e) { /* nada */ } }
-      finishImport();
-      return { ok: true, added: Object.keys(s.owned || {}).length - before };
-    }
-
     function build() {
       el = document.createElement('div');
       el.id = 'psg-an';
@@ -779,7 +717,7 @@
       el.innerHTML = `
         <div class="psg-an-head">
           <b>Analizador de colección</b><span class="psg-an-count"></span>
-          <button type="button" class="psg-an-mig" title="Exportar o importar tu partida">⇄ Copia</button>
+          <button type="button" class="psg-an-mig" title="Copia de seguridad de tu partida">⇄ Copia</button>
           <button type="button" class="psg-an-x" aria-label="Cerrar">✕</button>
         </div>
         <div class="psg-an-ctl">
@@ -797,17 +735,14 @@
           su habilidad y tus mejoras compradas. 🛡 Aguante: su vida entre el daño que recibe según sus defensas, con su
           velocidad, su habilidad y tus mejoras. Ambos comparados con el mejor de tu colección (100). Toca un Pokémon para ver el detalle.</p>
         <details class="psg-mig">
-          <summary>⇄ Copia de seguridad · mover la partida a otra cuenta</summary>
-          <p>Mueve <b>tu progreso</b> (Pokémon, mejoras, naturalezas, MT…), no el inicio de sesión. <b>No borra nada</b>:
-            sólo añade lo que falte. Úsalo para pasar tu partida a una cuenta de <b>nombre y contraseña</b> (así entras en la
-            app con el ayudante, sin depender de Google).</p>
-          <p><b>1.</b> En tu cuenta de ahora, pulsa Exportar (se descarga un archivo y se copia el texto).</p>
+          <summary>⇄ Copia de seguridad de tu partida</summary>
+          <p>Guarda una <b>copia de tu progreso</b> (Pokémon, mejoras, naturalezas, MT…) en un archivo, para tenerla de
+            respaldo. Sólo lee tu partida: no cambia nada.</p>
           <button type="button" id="psg-mig-export">⬇️ Exportar mi partida</button>
           <textarea id="psg-mig-out" readonly placeholder="(aquí sale tu partida al exportar)" style="display:none"></textarea>
-          <p><b>2.</b> Crea una cuenta de nombre y contraseña, entra en ella, pega aquí el texto (o elige el archivo) y pulsa Importar.</p>
-          <input type="file" id="psg-mig-file" accept="application/json,.json">
-          <textarea id="psg-mig-in" placeholder="pega aquí la partida exportada"></textarea>
-          <button type="button" id="psg-mig-import">⬆️ Importar en esta cuenta</button>
+          <p><b>¿Pasar la partida a otra cuenta?</b> No se puede hacer desde aquí: el juego guarda tu partida en su servidor
+            y quita los Pokémon que se añaden a mano a una cuenta (lo trata como trampa). Para mover o recuperar una cuenta,
+            pídeselo al autor en el Discord oficial: él sí puede hacerlo.</p>
         </details>
         <div class="psg-an-list"></div>`;
       document.body.appendChild(el);
@@ -842,34 +777,8 @@
         if (e.key === 'Escape' && el && !el.classList.contains('psg-hidden')) { e.stopPropagation(); e.preventDefault(); close(); }
       }, true);
 
-      // --- copia de seguridad / mover de cuenta ---
+      // --- copia de seguridad (sólo lectura) ---
       el.querySelector('#psg-mig-export').addEventListener('click', doExport);
-      el.querySelector('#psg-mig-file').addEventListener('change', e => {
-        const f = e.target.files && e.target.files[0];
-        if (!f) return;
-        const rd = new FileReader();
-        rd.onload = () => { const ta = el.querySelector('#psg-mig-in'); if (ta) ta.value = String(rd.result || ''); toast('Archivo cargado: pulsa Importar'); };
-        rd.onerror = () => toast('No se pudo leer el archivo');
-        rd.readAsText(f);
-      });
-      el.querySelector('#psg-mig-import').addEventListener('click', async () => {
-        const text = (el.querySelector('#psg-mig-in').value || '').trim();
-        if (!text) { toast('Pega la partida exportada o elige el archivo'); return; }
-        const s = curSave();
-        const hasData = s && s.owned && Object.keys(s.owned).length;
-        const msg = hasData
-          ? 'Esta cuenta YA tiene Pokémon. Importar añade los de la otra partida (no borra los de aquí). ¿Seguir?'
-          : 'Se importará la partida en esta cuenta. ¿Seguir?';
-        if (!W.confirm(msg)) return;
-        const btn = el.querySelector('#psg-mig-import');
-        btn.disabled = true; btn.textContent = 'Importando…';
-        const r = await doImport(text);
-        btn.disabled = false; btn.textContent = '⬆️ Importar en esta cuenta';
-        if (r && r.ok) {
-          toast('Partida importada: +' + (r.added || 0) + ' Pokémon. Pulsa Guardar en el juego para subirla.');
-          open();                      // vuelve a pintar con la colección ya traída
-        }
-      });
     }
 
     const VERD = {
@@ -905,7 +814,7 @@
       }).join('') || (rows.length
         ? '<p class="psg-an-help">Ningún Pokémon coincide.</p>'
         : '<p class="psg-an-help">Esta cuenta no tiene Pokémon todavía. Si vienes de otra cuenta (por ejemplo de Google), '
-          + 'abre «⇄ Copia de seguridad · mover la partida a otra cuenta» de arriba para traer tu progreso.</p>');
+          + 'ten en cuenta que el juego no deja pasar Pokémon entre cuentas: pídeselo al autor en el Discord oficial.</p>');
       const opened = list.querySelector('.psg-row.open');
       if (scroll && opened && opened.scrollIntoView) opened.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
@@ -1027,7 +936,7 @@
     (document.head || document.documentElement).appendChild(css);
 
     return { open, close, analyze: A.analyze, togglePin: A.togglePin, resetPins: A.resetPins,
-             exportSave: exportText, importSave: doImport };
+             exportSave: exportText };
   }
 
   function install(G) {

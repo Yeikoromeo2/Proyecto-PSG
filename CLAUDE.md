@@ -29,13 +29,14 @@
 - El anti-trampas del juego (`clean()`) sólo mira el reloj, propiedades propias del jugador
   (hurt/update/heal/gainXp) y límites de stats: no tocar nada de eso.
 
-## Copia / mover la partida (en el Analizador)
-- El juego publicado ya NO expone `importSave`; el ayudante exporta `G.DB.save` como JSON y lo
-  importa con una fusión propia (`mergeInto`): unión de colecciones (owned, shiny, legends…),
-  máximo en números (mejoras, monedas, stats). Nunca borra; pensado para llevar la partida a una
-  cuenta nueva de nombre y contraseña. Es DATO del jugador, no credenciales de Google.
-- Cross-Xray (Firefox): exportar con `W.JSON.stringify`, aplicar con `W.JSON.parse` y copiar claves
-  al objeto real `G.DB.save` (misma referencia); luego `G.DB.commit`/`saveNow`.
+## Copia de seguridad (en el Analizador) — SÓLO EXPORTAR
+- El ayudante exporta `G.DB.save` como JSON (archivo + texto). Es lectura: no cambia nada.
+- NO hay importar, a propósito: el juego publicado es autoritativo en servidor (`GET /save`,
+  `/eco/pull` para el gacha, `/run/start|end`, `/admin/suspects`, `/admin/ban`) y su changelog dice
+  que los Pokémon/shiny añadidos a mano a la partida del navegador «se quitan». Añadirlos sería saltarse
+  su anti-trampas y puede acabar en baneo. No volver a implementar importar ni nada que escriba la
+  colección. Mover una cuenta → el autor (tiene `/admin/save`).
+- Cross-Xray (Firefox): exportar con `W.JSON.stringify`.
 
 ## App Android (`android/`)
 - WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar) e inyecta el
