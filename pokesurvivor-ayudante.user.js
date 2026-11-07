@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.2.0
+// @version      0.3.0
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -20,7 +20,9 @@
  *      G.Ranking.submit*    la subida al ranking (para bloquearla en modo libre)
  *
  *  - Selector: puntúa las cartas ofrecidas, marca la mejor con el motivo y, en
- *    modo «Automático», la elige sola tras un instante.
+ *    modo «Automático», la elige sola tras un instante. Con «Plan: ON» sigue el
+ *    plan de 4 ataques del analizador para tu Pokémon: prioriza esos ataques y
+ *    las mejoras de stat que piden sus evoluciones, y evita llenar sus huecos.
  *
  *  - Modo libre: en vez del sorteo, junta todas las cartas posibles en ese
  *    momento y ofrece las 3 mejores (al «Cambiar opciones», las siguientes).
@@ -39,12 +41,12 @@
 
   const W = window;
   if (W.__psgMod) return;
-  const VERSION = '0.2.0';
+  const VERSION = '0.3.0';
 
   // ---------------- ajustes (sólo en este navegador) ----------------
 
   const KEY = 'psg.mod.v1';
-  const DEF = { auto: false, free: false, delay: 900 };
+  const DEF = { auto: false, free: false, plan: true, delay: 900 };
   const cfg = (() => {
     try { return Object.assign({}, DEF, JSON.parse(W.localStorage.getItem(KEY) || '{}')); }
     catch (e) { return Object.assign({}, DEF); }
@@ -73,8 +75,14 @@
   }
 
   /** [puntos, motivo] de una carta. Heurística v1: ver README. */
+  /**
+   * ctx.plan (opcional, del analizador): { ids: [4 ataques], names: {id: nombre},
+   * needs: {stat: [ataques del plan que la piden para evolucionar]},
+   * scores: {id: potencia de cada ataque posible} }.
+   */
   function score(G, c, pl, ctx) {
     const id = String(c.key || '').split(':')[1] || '';
+    const plan = ctx.plan || null;
     const hpR = pl.maxHp ? pl.hp / pl.maxHp : 1;
     const evoTable = (G.Moves && G.Moves.EVO) || {};
 
@@ -92,12 +100,17 @@
       if (id === 'xp') {
         if ((pl.level || 1) < 10) { s += 80; why = 'Al principio, subir rápido rinde más'; } else s -= 70;
       }
+      // Plan: basta con cogerla una vez para que su evolución quede lista cuando llegue.
+      if (plan && plan.needs[id] && !(pl.statsTaken || {})[id]) {
+        s += 120; why = 'Tu plan la pide para evolucionar ' + plan.needs[id].join(' y ');
+      }
       return [s, why];
     }
 
     if (c.type === 'up') {
       const m = (pl.moves || []).find(x => x.id === id);
       let s = 420, why = 'Mejora un ataque que ya tienes';
+      const inPlan = !!(plan && plan.ids.includes(id));
       if (m) {
         const max = (m.def && m.def.maxLvl) || 5, left = Math.max(0, max - (m.lvl || 1));
         if (m.kind === 'buff') { s -= 160; why = 'Mejora un potenciador'; }
@@ -107,27 +120,44 @@
                           : 'Le faltan ' + left + ' niveles para poder evolucionar';
         }
       }
+      if (inPlan) { s += 100; why = 'De tu plan · ' + why; }
       return [s, why];
     }
 
     if (c.type === 'new') {
       const d = (G.Moves && G.Moves.BY_ID && G.Moves.BY_ID[id]) || {};
       const dmgMoves = (pl.moves || []).filter(m => m.kind !== 'buff').length;
-      if (d.kind === 'buff') return [dmgMoves >= 2 ? 230 : 120, 'Potenciador: no hace daño por sí solo'];
+      // Plan: si los huecos libres no sobran, un ataque de fuera le quitaría el sitio a uno del
+      // plan. Se castiga según lo peor que sea que el más flojo de los que faltan (el que se
+      // quedaría fuera), y la mitad si aún tienes menos de 2 ataques (urge tener con qué pegar).
+      const missing = plan ? plan.ids.filter(x => !(pl.moves || []).some(m => m.id === x)) : [];
+      const free = (pl.maxMoves || 4) - ((pl.slots && pl.slots.length) || 0);
+      let penalty = 0, crowdWhy = '';
+      if (plan && !plan.ids.includes(id) && missing.length > 0 && free <= missing.length) {
+        const weakest = missing.reduce((a, x) => ((plan.scores[x] || 0) < (plan.scores[a] || 0) ? x : a), missing[0]);
+        const ratio = plan.scores[weakest] ? Math.min(1, (plan.scores[id] || 0) / plan.scores[weakest]) : 0;
+        if (ratio < 0.9) {
+          penalty = Math.min(200, Math.round(250 * (1 - ratio))) * (dmgMoves < 2 ? 0.5 : 1);
+          crowdWhy = ' · fuera de tu plan: le quitaría el hueco a ' + plan.names[weakest];
+        } else crowdWhy = ' · casi tan bueno como tu plan';
+      }
+      if (d.kind === 'buff') return [(dmgMoves >= 2 ? 230 : 120) - penalty, 'Potenciador: no hace daño por sí solo' + crowdWhy];
       let fit = 1;
       try { fit = G.Stats.fit(pl.mon, d.cat); } catch (e) { /* nada */ }
       let s = 360 * fit;
       let why = fit >= 0.999 ? 'Ataque nuevo de tu lado fuerte' : 'Rinde al ' + Math.round(fit * 100) + ' % con tu Pokémon';
       if (dmgMoves < 2) { s += 150; why += ' · te faltan ataques'; }
       if (evoTable[id]) s += 50;
+      if (plan && plan.ids.includes(id)) { s += 250; why = 'De tu plan (n.º ' + (plan.ids.indexOf(id) + 1) + ') · ' + why; }
+      else { s -= penalty; why += crowdWhy; }
       return [s, why];
     }
 
     return [0, ''];
   }
 
-  function annotate(G, list, pl) {
-    const ctx = { waiting: waitingStats(G, pl) };
+  function annotate(G, list, pl, plan) {
+    const ctx = { waiting: waitingStats(G, pl), plan };
     for (const c of list) {
       try { const r = score(G, c, pl, ctx); c.__psg = { s: r[0], w: r[1] }; }
       catch (e) { c.__psg = { s: 0, w: '' }; }
@@ -325,8 +355,8 @@
     return { analyze, natName, typeName };
   }
 
-  function installAnalyzer(G, toast) {
-    const A = analyzerCore(G);
+  function installAnalyzer(G, toast, core) {
+    const A = core || analyzerCore(G);
     let el = null, rows = [], openDex = null, sortBy = 'power', query = '';
 
     function addMenuButton() {
@@ -517,6 +547,27 @@
     let forcedFor = null;          // objeto jugador de la partida que ha usado el modo libre
     let shown = null;              // { level, cb, coop } de la pantalla de cartas abierta
 
+    const core = analyzerCore(G);
+    let planCache = { pl: null, v: null };
+    /** Plan de 4 ataques del analizador para el Pokémon de esta partida (o null). */
+    function planFor(pl) {
+      if (!cfg.plan || !pl) return null;
+      if (planCache.pl === pl) return planCache.v;
+      let v = null;
+      try {
+        const dex = pl.dex != null ? pl.dex : pl.mon && pl.mon.dex;
+        const r = dex != null ? core.analyze(dex) : null;
+        if (r && r.plan.length) {
+          const needs = {};
+          for (const m of r.plan) if (m.evo) (needs[m.evo] = needs[m.evo] || []).push(m.name);
+          v = { ids: r.plan.map(m => m.id), names: Object.fromEntries(r.plan.map(m => [m.id, m.name])), needs,
+                scores: Object.fromEntries(r.attacks.map(m => [m.id, m.score])) };
+        }
+      } catch (e) { console.warn('[PSG] no se pudo calcular el plan', e); }
+      planCache = { pl, v };
+      return v;
+    }
+
     const coopActive = () => !!(G.Coop && G.Coop.active);
     const runForced = () => !!forcedFor && forcedFor === G.Game.player;
     const toast = msg => { try { G.UI.toast(msg, 2600); } catch (e) { /* nada */ } };
@@ -538,7 +589,7 @@
 
     function freeOffer(pl, n) {
       const pool = fullPool(pl);
-      annotate(G, pool, pl);
+      annotate(G, pool, pl, planFor(pl));
       pool.sort((a, b) => b.__psg.s - a.__psg.s);
       const pinned = pool.filter(c => c.type === 'evo');          // la evolución sale siempre, como en el juego
       const rest = pool.filter(c => c.type !== 'evo');
@@ -554,7 +605,7 @@
     G.LevelUp.offer = function (pl, n = 3) {
       let list;
       if (cfg.free && pl && !coopActive()) list = freeOffer(pl, n);
-      else { list = origOffer.apply(this, arguments); if (pl) annotate(G, list, pl); }
+      else { list = origOffer.apply(this, arguments); if (pl) annotate(G, list, pl, planFor(pl)); }
       lastList = list;
       const my = ++token;
       setTimeout(() => decorate(my), 0);         // el juego pinta las cartas justo después
@@ -634,8 +685,9 @@
         bar.id = 'psg-bar';
         bar.setAttribute('translate', 'no');
         bar.innerHTML = '<button type="button" class="psg-chip" data-k="auto"></button>'
+          + '<button type="button" class="psg-chip" data-k="plan"></button>'
           + '<button type="button" class="psg-chip" data-k="free"></button>'
-          + '<div class="psg-note"></div>';
+          + '<div class="psg-plan"></div><div class="psg-note"></div>';
         cards.parentNode.insertBefore(bar, cards);
         onTap(bar.querySelector('[data-k="auto"]'), () => {
           cfg.auto = !cfg.auto; saveCfg(); paintBar();
@@ -649,34 +701,68 @@
           // (si no, apagar y encender sería un «cambiar opciones» gratis).
           if (cfg.free) regenerate();
         });
+        onTap(bar.querySelector('[data-k="plan"]'), () => {
+          cfg.plan = !cfg.plan; saveCfg();
+          // Con el modo libre las cartas salen del plan: se vuelven a sacar; si no, sólo se repuntúan.
+          if (cfg.free && !coopActive()) regenerate(); else rescore();
+          paintBar();
+        });
       }
       const a = bar.querySelector('[data-k="auto"]'), f = bar.querySelector('[data-k="free"]');
       a.textContent = cfg.auto ? '🤖 Automático' : '👆 Selección';
       a.classList.toggle('on', cfg.auto);
       f.textContent = '🔓 Modo libre: ' + (cfg.free ? 'ON' : 'OFF');
       f.classList.toggle('on', cfg.free);
+      const pb = bar.querySelector('[data-k="plan"]');
+      pb.textContent = '📋 Plan: ' + (cfg.plan ? 'ON' : 'OFF');
+      pb.classList.toggle('on', cfg.plan);
+      const pl = G.Game.player, plan = planFor(pl);
+      let line = '';
+      if (plan && pl) {
+        const has = id => (pl.moves || []).some(m => m.id === id);
+        line = 'Plan: ' + plan.ids.map(id => (has(id) ? '✔ ' : '') + plan.names[id]).join(' · ');
+        const st = Object.keys(plan.needs);
+        if (st.length) {
+          const nn = (G.Moves && G.Moves.NEED_NAME) || {};
+          line += ' — mejoras: ' + st.map(k => ((pl.statsTaken || {})[k] ? '✔ ' : '') + (nn[k] || k)).join(', ');
+        }
+      }
+      bar.querySelector('.psg-plan').textContent = line;
       bar.querySelector('.psg-note').textContent = runForced() ? 'Esta partida ya no se subirá al ranking.' : '';
+    }
+
+    /** Vuelve a puntuar las cartas abiertas sin cambiarlas (al encender o apagar el plan). */
+    function rescore() {
+      const pl = G.Game.player;
+      if (!lastList || !pl || !screenOpen()) return;
+      annotate(G, lastList, pl, planFor(pl));
+      document.querySelectorAll('#cards .psg-badge').forEach(b => b.remove());
+      document.querySelectorAll('#cards .psg-best').forEach(b => b.classList.remove('psg-best'));
+      decorate(token);
     }
 
     const css = document.createElement('style');
     css.textContent = `
-      #psg-bar{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:4px 0 8px}
-      #psg-bar .psg-chip{font-family:inherit;font-weight:600;font-size:13px;line-height:1;padding:7px 12px;border-radius:999px;border:1px solid #ffffff40;
+      #psg-bar{display:flex;flex-wrap:wrap;gap:6px 8px;justify-content:center;margin:4px 0 8px;
+        width:0;min-width:100%;box-sizing:border-box}  /* ocupa el ancho de las cartas sin ensancharlas */
+      #psg-bar .psg-chip{font-family:inherit;font-weight:600;font-size:13px;line-height:1;padding:6px 11px;border-radius:999px;border:1px solid #ffffff40;
         background:#00000055;color:#fff;cursor:pointer;touch-action:manipulation}
       #psg-bar .psg-chip.on{background:#ffd23f;color:#2a2000;border-color:#ffd23f}
       #psg-bar .psg-note{width:100%;text-align:center;font-size:12px;color:#ffaaaa;min-height:0}
-      #psg-bar .psg-note:empty{display:none}
+      #psg-bar .psg-note:empty,#psg-bar .psg-plan:empty{display:none}
+      #psg-bar .psg-plan{width:100%;text-align:center;font-size:12px;line-height:1.3;color:#cfe0ff}
       .card.psg-best{outline:3px solid #ffd23f;outline-offset:2px;box-shadow:0 0 14px #ffd23f88}
       .psg-badge{margin-top:4px;font-size:12px;line-height:1.25;color:#ffe48a}
     `;
     (document.head || document.documentElement).appendChild(css);
 
     // Para depurar desde la consola (y para tests/e2e.cjs).
-    W.__psgMod.score = (c, pl) => score(G, c, pl, { waiting: waitingStats(G, pl) });
+    W.__psgMod.score = (c, pl) => score(G, c, pl, { waiting: waitingStats(G, pl), plan: planFor(pl) });
+    W.__psgMod.plan = () => planFor(G.Game.player);
     W.__psgMod.fullPool = () => (G.Game.player ? fullPool(G.Game.player) : []);
     Object.defineProperty(W.__psgMod, 'forced', { get: runForced });
 
-    try { W.__psgMod.analyzer = installAnalyzer(G, toast); }
+    try { W.__psgMod.analyzer = installAnalyzer(G, toast, core); }
     catch (e) { console.error('[PSG] no se pudo instalar el analizador', e); }
     toast('Ayudante PSG ' + VERSION + ' activo');
   }

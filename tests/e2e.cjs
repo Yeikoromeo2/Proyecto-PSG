@@ -101,6 +101,18 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
       && document.querySelectorAll('#cards .card').length > 0, null, { timeout: 10000 });
   };
 
+  // Plan del analizador para el Pokémon de la partida.
+  const pc = await page.evaluate(() => {
+    const pl = G.Game.player, plan = window.__psgMod.plan();
+    const want = plan.ids.find(id => !pl.hasMove(id));
+    const other = G.Moves.poolFor(pl.mon).find(id => !plan.ids.includes(id) && !pl.hasMove(id) && G.Moves.BY_ID[id].kind !== 'buff');
+    const sc = id => window.__psgMod.score({ type: 'new', key: 'new:' + id }, pl);
+    return { n: plan.ids.length, a: sc(want), b: other ? sc(other) : [0, ''] };
+  });
+  check(pc.n === 4, 'plan de 4 ataques para el Pokémon de la partida');
+  check(pc.a[0] > pc.b[0] && /^De tu plan/.test(pc.a[1]), `un ataque del plan puntúa más que uno de fuera (${Math.round(pc.a[0])} > ${Math.round(pc.b[0])})`);
+  console.log('       plan:', pc.a[1], '| fuera:', pc.b[1]);
+
   // 1) Selector: cada carta lleva su motivo y una sale recomendada.
   await openCards();
   const info = await page.evaluate(() => ({
@@ -111,6 +123,14 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   }));
   check(info.cards === 3 && info.best === 1, `3 cartas y 1 recomendada (${info.cards}/${info.best})`);
   check(info.bar, 'barra con los interruptores en la pantalla de cartas');
+  const planLine = await page.evaluate(() => document.querySelector('#psg-bar .psg-plan').textContent);
+  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 3, 'tres interruptores y la línea del plan');
+  console.log('       ' + planLine);
+  await page.click('#psg-bar [data-k="plan"]');
+  const off = await page.evaluate(() => ({ line: document.querySelector('#psg-bar .psg-plan').textContent, plan: window.__psgMod.plan(),
+    badges: document.querySelectorAll('#cards .psg-badge').length }));
+  check(off.line === '' && off.plan === null && off.badges === 3, 'Plan OFF: sin línea de plan y cartas repuntuadas');
+  await page.click('#psg-bar [data-k="plan"]');
   console.log('       motivos:', info.badges.join(' | '));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cartas-seleccion.png') });
 
@@ -139,7 +159,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   });
   check(free.forced, 'modo libre: la partida queda marcada');
   check(free.pool >= 3, `modo libre: conoce todas las cartas posibles (${free.pool})`);
-  console.log('       mejores puntuaciones posibles:', free.top.join(', '), '|', free.shownBadges.join(' | '));
+  console.log('       mejores puntuaciones posibles:', free.top.map(Math.round).join(', '), '|', free.shownBadges.join(' | '));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cartas-modo-libre.png') });
 
   // 4) Ranking: en una partida marcada no se sube nada.
@@ -148,7 +168,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
 
   // 5) Ajustes guardados.
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('psg.mod.v1') || '{}'));
-  check(saved.free === true, 'los interruptores se recuerdan en el navegador');
+  check(saved.free === true && saved.plan === true, 'los interruptores se recuerdan en el navegador');
 
   await browser.close();
   server.close();

@@ -30,12 +30,20 @@ comparado con el mejor de tu colección. Sirve para comparar, no es el daño exa
   (evolución lista, desbloquea una evolución, ataque de tu lado fuerte, vida baja…).
 - **Interruptor 👆 Selección / 🤖 Automático:** en *Selección* sólo te recomienda;
   en *Automático* elige la recomendada sola, un instante después de abrirse las cartas.
+- **Interruptor 📋 Plan (ON/OFF, encendido de serie):** el selector sigue el *plan de 4
+  ataques* que el analizador calcula para el Pokémon con el que juegas. Encima de las cartas
+  verás el plan (✔ los que ya tienes) y las mejoras de stat que piden sus evoluciones. Con el
+  plan encendido:
+  - los ataques del plan y sus mejoras suben mucho de prioridad;
+  - la mejora de stat que pide la evolución de un ataque del plan sube (hasta cogerla una vez);
+  - un ataque de fuera del plan baja si ya no te sobran huecos, más cuanto peor sea que el
+    ataque del plan al que le quitaría el sitio (y la mitad si aún tienes menos de 2 ataques).
 - **Interruptor 🔓 Modo libre (ON/OFF):** en lugar del sorteo te ofrece las 3 mejores
   cartas posibles en ese momento («Cambiar opciones» pasa a las siguientes).
   **La partida en la que lo uses no se sube al ranking**: así no compites con ventaja
   contra quien juega limpio. En cooperativo no se puede activar.
 
-Los dos interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
+Los tres interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
 > Las cartas **no se pueden saber antes**: el juego las sortea con `Math.random()` en
 > el momento exacto de subir de nivel. Lo que sí se conoce son todas las cartas
@@ -66,14 +74,14 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.2.0 activo».
+   Al cargar verás el aviso «Ayudante PSG 0.3.0 activo».
 
 Si no aparece ese aviso: en Violentmonkey, abre el script y comprueba que el modo de
 inyección es **page** (el script ya lo pide con `@inject-into page`).
 
 También funciona en el ordenador (Chrome, Firefox, Edge) con Tampermonkey o Violentmonkey.
 
-## Cómo puntúa las cartas (versión 0.1)
+## Cómo puntúa las cartas
 
 Heurística sencilla, pensada para ajustarla con la experiencia:
 
@@ -89,6 +97,10 @@ Heurística sencilla, pensada para ajustarla con la experiencia:
 | Vigor / Coraza / Síntesis | 170 / 170 / 150 | +160 si tienes menos de la mitad de vida |
 | Aprendizaje | 230 hasta nivel 10, luego 80 | |
 | Potenciadores (Danza Espada…) | 120–230 | No hacen daño por sí solos |
+| **Con Plan ON:** ataque nuevo del plan | +250 | |
+| **Con Plan ON:** mejorar un ataque del plan | +100 | |
+| **Con Plan ON:** mejora de stat que pide una evolución del plan | +120 | Sólo hasta cogerla una vez |
+| **Con Plan ON:** ataque o potenciador de fuera que quita hueco al plan | hasta −200 | Según lo peor que sea; la mitad con menos de 2 ataques |
 
 ## Cómo funciona por dentro
 
