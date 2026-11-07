@@ -89,6 +89,31 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     await page.screenshot({ path: path.join(SHOTS, 'analizador-plan.png') });
     await page.setViewportSize({ width: 915, height: 412 });
   }
+  // Plan fijado a mano: 📌 en «Todos sus ataques».
+  const other = await page.evaluate(() => { const r = window.__psgMod.analyzer.analyze(25); return r.attacks.find(m => !r.plan.some(p => p.id === m.id)).id; });
+  await page.click('#psg-an details.psg-all summary');
+  await page.click(`#psg-an [data-dex="25"][data-pin="${other}"]`);
+  const pinned = await page.evaluate(() => ({ r: (r => ({ custom: r.custom, first: r.plan[0].id, n: r.plan.length }))(window.__psgMod.analyzer.analyze(25)),
+    head: [...document.querySelectorAll('#psg-an .psg-det h4')].map(h => h.textContent).join(' | '),
+    allOpen: !!document.querySelector('#psg-an details.psg-all[open]') }));
+  check(pinned.r.custom && pinned.r.first === other && pinned.r.n === 4, 'fijar un ataque con 📌 lo pone primero en el plan (4 en total)');
+  check(/fijado por ti/.test(pinned.head) && pinned.allOpen, 'el plan se marca como «fijado por ti» y la tabla sigue abierta');
+  if (SHOTS) {
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[2].scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, 'analizador-fijado.png') });
+    await page.setViewportSize({ width: 915, height: 412 });
+  }
+  const limit = await page.evaluate(id => {
+    const A = window.__psgMod.analyzer, r = A.analyze(25), rest = r.attacks.filter(m => m.id !== id).slice(0, 4).map(m => m.id);
+    const res = rest.map(x => A.togglePin(25, x));
+    return res;
+  }, other);
+  check(limit.join() === 'true,true,true,false', 'como mucho 4 ataques fijados');
+  await page.click('#psg-an [data-reset="25"]');
+  check(await page.evaluate(() => !window.__psgMod.analyzer.analyze(25).custom), '«Volver al calculado» quita lo fijado');
+  await page.evaluate(id => window.__psgMod.analyzer.togglePin(25, id), other);
   await page.evaluate(() => window.__psgMod.analyzer.close());
 
   // Partida con Pikachu.
@@ -110,6 +135,18 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     return { n: plan.ids.length, a: sc(want), b: other ? sc(other) : [0, ''] };
   });
   check(pc.n === 4, 'plan de 4 ataques para el Pokémon de la partida');
+  check(await page.evaluate(id => window.__psgMod.plan().ids[0] === id, other), 'las cartas usan el plan fijado a mano');
+
+  // Estilos: Aguante prioriza Coraza y Daño prioriza Potencia.
+  const st = await page.evaluate(() => {
+    const pl = G.Game.player, cfg = window.__psgMod.cfg, sc = k => window.__psgMod.score({ type: 'stat', key: 'stat:' + k }, pl)[0];
+    const out = {};
+    for (const x of ['equilibrado', 'aguante', 'dano']) { cfg.style = x; out[x] = { def: sc('def'), atk: sc('atk') }; }
+    cfg.style = 'equilibrado';
+    return out;
+  });
+  check(st.aguante.def > st.equilibrado.def && st.equilibrado.def > st.dano.def && st.dano.atk > st.equilibrado.atk && st.equilibrado.atk > st.aguante.atk,
+    `estilos: Coraza ${st.aguante.def}/${st.equilibrado.def}/${st.dano.def} · Potencia ${st.aguante.atk}/${st.equilibrado.atk}/${st.dano.atk} (Aguante/Equilibrado/Daño)`);
   check(pc.a[0] > pc.b[0] && /^De tu plan/.test(pc.a[1]), `un ataque del plan puntúa más que uno de fuera (${Math.round(pc.a[0])} > ${Math.round(pc.b[0])})`);
   console.log('       plan:', pc.a[1], '| fuera:', pc.b[1]);
 
@@ -124,7 +161,12 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(info.cards === 3 && info.best === 1, `3 cartas y 1 recomendada (${info.cards}/${info.best})`);
   check(info.bar, 'barra con los interruptores en la pantalla de cartas');
   const planLine = await page.evaluate(() => document.querySelector('#psg-bar .psg-plan').textContent);
-  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 3, 'tres interruptores y la línea del plan');
+  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 4, 'cuatro interruptores y la línea del plan');
+  await page.click('#psg-bar [data-k="style"]');
+  const styleTxt = await page.locator('#psg-bar [data-k="style"]').textContent();
+  check(/Aguante/.test(styleTxt) && (await page.locator('#cards .psg-badge').count()) === 3, 'el estilo cambia con un toque y repuntúa las cartas');
+  await page.click('#psg-bar [data-k="style"]');
+  await page.click('#psg-bar [data-k="style"]');
   console.log('       ' + planLine);
   await page.click('#psg-bar [data-k="plan"]');
   const off = await page.evaluate(() => ({ line: document.querySelector('#psg-bar .psg-plan').textContent, plan: window.__psgMod.plan(),
@@ -168,7 +210,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
 
   // 5) Ajustes guardados.
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('psg.mod.v1') || '{}'));
-  check(saved.free === true && saved.plan === true, 'los interruptores se recuerdan en el navegador');
+  check(saved.free === true && saved.plan === true && saved.style === 'equilibrado', 'los interruptores se recuerdan en el navegador');
 
   await browser.close();
   server.close();

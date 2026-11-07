@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.3.0
+// @version      0.4.0
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -23,6 +23,10 @@
  *    modo «Automático», la elige sola tras un instante. Con «Plan: ON» sigue el
  *    plan de 4 ataques del analizador para tu Pokémon: prioriza esos ataques y
  *    las mejoras de stat que piden sus evoluciones, y evita llenar sus huecos.
+ *    El plan se puede fijar a mano en el analizador (📌).
+ *
+ *  - Estilo (⚖️ Equilibrado / 🛡️ Aguante / ⚔️ Daño): cambia qué mejoras de stat
+ *    y cuándo la Baya Zidra se priorizan.
  *
  *  - Modo libre: en vez del sorteo, junta todas las cartas posibles en ese
  *    momento y ofrece las 3 mejores (al «Cambiar opciones», las siguientes).
@@ -41,19 +45,35 @@
 
   const W = window;
   if (W.__psgMod) return;
-  const VERSION = '0.3.0';
+  const VERSION = '0.4.0';
 
   // ---------------- ajustes (sólo en este navegador) ----------------
 
   const KEY = 'psg.mod.v1';
-  const DEF = { auto: false, free: false, plan: true, delay: 900 };
+  const DEF = { auto: false, free: false, plan: true, style: 'equilibrado', delay: 900 };
   const cfg = (() => {
     try { return Object.assign({}, DEF, JSON.parse(W.localStorage.getItem(KEY) || '{}')); }
     catch (e) { return Object.assign({}, DEF); }
   })();
   function saveCfg() { try { W.localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) { /* sin almacenamiento */ } }
 
+  // Planes fijados a mano en el analizador: { cuenta: { dex: [hasta 4 ataques] } }.
+  const PKEY = 'psg.plans.v1';
+  function loadPins() { try { return JSON.parse(W.localStorage.getItem(PKEY) || '{}') || {}; } catch (e) { return {}; } }
+  function savePins(p) { try { W.localStorage.setItem(PKEY, JSON.stringify(p)); } catch (e) { /* sin almacenamiento */ } }
+
   // ---------------- puntuación de cartas ----------------
+
+  // Estilos de juego (interruptor en las cartas): cambian qué mejoras de stat se priorizan.
+  //   stat  puntos de más (o de menos) para cada mejora · heal  umbrales de vida de la Baya Zidra
+  //   up    puntos de más (o de menos) para mejorar un ataque que ya tienes
+  const STYLES = {
+    equilibrado: { label: '⚖️ Equilibrado', name: 'Equilibrado', stat: {}, heal: [0.35, 0.6], up: 0 },
+    aguante: { label: '🛡️ Aguante', name: 'Aguante', stat: { hp: 130, def: 130, rgn: 120, spd: 40, atk: -40, cd: -20 }, heal: [0.5, 0.8], up: -20 },
+    dano: { label: '⚔️ Daño', name: 'Daño', stat: { atk: 120, cd: 100, hp: -70, def: -70, rgn: -60 }, heal: [0.25, 0.45], up: 60 }
+  };
+  const STYLE_ORDER = ['equilibrado', 'aguante', 'dano'];
+  const styleOf = () => STYLES[cfg.style] || STYLES.equilibrado;
 
   // Valor base de cada mejora de stat (ids de G.LevelUp.STATS).
   const STAT_BASE = { atk: 300, cd: 280, hp: 170, def: 170, rgn: 150, spd: 120, mag: 80, xp: 150 };
@@ -88,9 +108,10 @@
 
     if (c.type === 'evo') return [1000, 'Evolución lista: el mayor salto de daño'];
 
+    const st = styleOf();
     if (c.type === 'stat') {
       if (id === 'heal') {
-        return hpR < 0.35 ? [900, 'Te queda poca vida'] : hpR < 0.6 ? [260, 'Recupera vida'] : [15, 'Tienes la vida casi llena'];
+        return hpR < st.heal[0] ? [900, 'Te queda poca vida'] : hpR < st.heal[1] ? [260, 'Recupera vida'] : [15, 'Tienes la vida casi llena'];
       }
       if (ctx.waiting[id]) return [850, 'Desbloquea la evolución de ' + moveName(G, ctx.waiting[id])];
       let s = STAT_BASE[id] != null ? STAT_BASE[id] : 100, why = 'Mejora para toda la partida';
@@ -100,6 +121,8 @@
       if (id === 'xp') {
         if ((pl.level || 1) < 10) { s += 80; why = 'Al principio, subir rápido rinde más'; } else s -= 70;
       }
+      const sb = st.stat[id] || 0;
+      if (sb) { s += sb; if (sb > 0) why += ' · va con tu estilo ' + st.name; }
       // Plan: basta con cogerla una vez para que su evolución quede lista cuando llegue.
       if (plan && plan.needs[id] && !(pl.statsTaken || {})[id]) {
         s += 120; why = 'Tu plan la pide para evolucionar ' + plan.needs[id].join(' y ');
@@ -121,6 +144,7 @@
         }
       }
       if (inPlan) { s += 100; why = 'De tu plan · ' + why; }
+      s += st.up;
       return [s, why];
     }
 
@@ -141,7 +165,10 @@
           crowdWhy = ' · fuera de tu plan: le quitaría el hueco a ' + plan.names[weakest];
         } else crowdWhy = ' · casi tan bueno como tu plan';
       }
-      if (d.kind === 'buff') return [(dmgMoves >= 2 ? 230 : 120) - penalty, 'Potenciador: no hace daño por sí solo' + crowdWhy];
+      if (d.kind === 'buff') {
+        if (plan && plan.ids.includes(id)) return [480, 'De tu plan (n.º ' + (plan.ids.indexOf(id) + 1) + ') · potenciador'];
+        return [(dmgMoves >= 2 ? 230 : 120) - penalty, 'Potenciador: no hace daño por sí solo' + crowdWhy];
+      }
       let fit = 1;
       try { fit = G.Stats.fit(pl.mon, d.cat); } catch (e) { /* nada */ }
       let s = 360 * fit;
@@ -221,6 +248,23 @@
     const moveName = d => { try { return G.T(d.name, 'move'); } catch (e) { return d.name; } };
     const natName = n => (n ? nm(n.n) : '');
 
+    // Plan fijado a mano (por cuenta: la fecha de creación de la partida la identifica).
+    const acct = () => String((save() && save().created) || 'local');
+    function pinsOf(dex) { const a = loadPins()[acct()] || {}; return Array.isArray(a[dex]) ? a[dex].slice(0, 4) : []; }
+    function setPins(dex, ids) {
+      const all = loadPins(), k = acct();
+      all[k] = all[k] || {};
+      if (ids.length) all[k][dex] = ids.slice(0, 4); else delete all[k][dex];
+      savePins(all);
+    }
+    /** Fija o suelta un ataque del plan. → false si ya hay 4 fijados. */
+    function togglePin(dex, id) {
+      const p = pinsOf(dex), i = p.indexOf(id);
+      if (i >= 0) p.splice(i, 1); else { if (p.length >= 4) return false; p.push(id); }
+      setPins(dex, p);
+      return true;
+    }
+
     /** Índice aproximado de daño por segundo de una instancia de movimiento. */
     function moveIndex(inst) {
       if (!inst || inst.kind === 'buff') return 0;
@@ -276,13 +320,17 @@
       for (const m of moves) { m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK; m.score0 = m.val0 * m.abilK; }
       const attacks = moves.filter(m => !m.buff).sort((a, b) => b.score - a.score);
       const slotsN = 4;
-      const plan = attacks.slice(0, slotsN);
+      // Los fijados a mano van primero; los huecos que queden, con los mejores calculados.
+      const pinned = pinsOf(dex).map(id => moves.find(m => m.id === id)).filter(Boolean);
+      pinned.forEach(m => { m.pinned = true; });
+      const plan = pinned.concat(attacks.filter(m => !m.pinned).slice(0, Math.max(0, slotsN - pinned.length)));
       const evoStats = [...new Set(plan.filter(m => m.evo).map(m => m.evoName))];
 
       // ---- naturaleza ----
       // El lado con el que pega se mira en su mejor plan SIN naturaleza (si no, la propia
       // naturaleza decidiría el lado: Pikachu Modesta saldría «especial» por ser Modesta).
-      const plan0 = moves.filter(m => !m.buff).sort((a, b) => b.score0 - a.score0).slice(0, slotsN);
+      const plan0 = pinned.concat(moves.filter(m => !m.buff && !m.pinned).sort((a, b) => b.score0 - a.score0)
+        .slice(0, Math.max(0, slotsN - pinned.length)));
       const tot0 = plan0.reduce((a, m) => a + m.score0, 0) || 1;
       const physShare = plan0.filter(m => m.cat === 'physical').reduce((a, m) => a + m.score0, 0) / tot0;
       const side = physShare >= 0.5 ? 'physical' : 'special';
@@ -318,7 +366,8 @@
       else { abV = 'normal'; abWhy = 'Es ' + cur.kind + ': no se puede medir en daño, lee lo que hace.'; }
 
       // ---- MT que entrarían en el plan ----
-      const cut = plan.length >= slotsN ? plan[plan.length - 1].score : 0;
+      const autoPart = plan.filter(m => !m.pinned);
+      const cut = plan.length < slotsN ? 0 : autoPart.length ? autoPart[autoPart.length - 1].score : Infinity;
       const tmBuy = [];
       try {
         for (const id of G.Mons.learnable(dex)) {
@@ -346,18 +395,18 @@
         dex, base, mon, name: base.name, types: base.types, side,
         nat, rolled, natChanged: !!(s && s.pnat && s.pnat[dex]), natV, natWhy, bestNat,
         abil: cur, abilOpts, abV, abWhy, abSlot: ab.slot,
-        moves, attacks, plan, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv,
+        moves, attacks, plan, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
         used: (s && s.pused && +s.pused[dex]) || 0,
         power: plan.reduce((a, m) => a + m.score, 0)
       };
     }
 
-    return { analyze, natName, typeName };
+    return { analyze, natName, typeName, togglePin, resetPins: dex => setPins(dex, []) };
   }
 
   function installAnalyzer(G, toast, core) {
     const A = core || analyzerCore(G);
-    let el = null, rows = [], openDex = null, sortBy = 'power', query = '';
+    let el = null, rows = [], openDex = null, sortBy = 'power', query = '', allOpen = false;
 
     function addMenuButton() {
       if (document.getElementById('psg-an-btn')) return true;
@@ -381,13 +430,23 @@
       rows = Object.keys(s.owned).map(Number).filter(d => G.DEX_BY[d]).map(d => {
         try { return A.analyze(d); } catch (e) { console.warn('[PSG] no se pudo analizar', d, e); return null; }
       }).filter(Boolean);
-      const top = Math.max(1, ...rows.map(r => r.power));
-      rows.forEach(r => { r.pct = Math.round(100 * r.power / top); });
+      rescale();
       if (!el) build();
       el.classList.remove('psg-hidden');
       paint();
     }
     function close() { if (el) el.classList.add('psg-hidden'); }
+    function rescale() {
+      const top = Math.max(1, ...rows.map(r => r.power));
+      rows.forEach(r => { r.pct = Math.round(100 * r.power / top); });
+    }
+    /** Vuelve a analizar un Pokémon (tras fijar o soltar un ataque) y repinta sin moverse. */
+    function refresh(dex) {
+      const i = rows.findIndex(r => r.dex === dex);
+      if (i >= 0) { try { rows[i] = A.analyze(dex); } catch (e) { console.warn('[PSG]', e); } }
+      rescale();
+      paint(false);
+    }
 
     function build() {
       el = document.createElement('div');
@@ -414,7 +473,19 @@
       el.querySelector('.psg-an-x').addEventListener('click', close);
       el.querySelector('input').addEventListener('input', e => { query = fold(e.target.value); paint(); });
       el.querySelector('select').addEventListener('change', e => { sortBy = e.target.value; paint(); });
+      el.querySelector('.psg-an-list').addEventListener('toggle', e => {
+        if (e.target.matches && e.target.matches('details.psg-all')) allOpen = e.target.open;
+      }, true);
       el.querySelector('.psg-an-list').addEventListener('click', e => {
+        const pin = e.target.closest('[data-pin]');
+        if (pin) {
+          const dex = +pin.dataset.dex;
+          if (!A.togglePin(dex, pin.dataset.pin)) toast('Ya tienes 4 ataques fijados: suelta uno primero');
+          refresh(dex);
+          return;
+        }
+        const reset = e.target.closest('[data-reset]');
+        if (reset) { A.resetPins(+reset.dataset.reset); refresh(+reset.dataset.reset); return; }
         const r = e.target.closest('.psg-row');
         if (!r) return;
         const d = +r.dataset.dex;
@@ -434,7 +505,7 @@
     const chip = t => `<span class="psg-type" style="background:${esc((G.U.TYPE_COLOR || {})[t] || '#666')}">${esc(A.typeName(t))}</span>`;
     const catTxt = c => (c === 'physical' ? 'Físico' : c === 'special' ? 'Especial' : '—');
 
-    function paint() {
+    function paint(scroll = true) {
       const list = el.querySelector('.psg-an-list');
       let shown = rows.filter(r => !query || fold(r.name).includes(query));
       const by = {
@@ -455,7 +526,7 @@
           </div>${openDex === r.dex ? detail(r) : ''}`;
       }).join('') || '<p class="psg-an-help">Ningún Pokémon coincide.</p>';
       const opened = list.querySelector('.psg-row.open');
-      if (opened && opened.scrollIntoView) opened.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      if (scroll && opened && opened.scrollIntoView) opened.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
 
     function detail(r) {
@@ -466,8 +537,11 @@
       const abOpts = r.abilOpts.length > 1 ? '<ul class="psg-opts">' + r.abilOpts.map(a =>
         `<li${a.id === r.abil.id ? ' class="cur"' : ''}><b>${esc(a.name)}</b>${a.slot === 2 ? ' <small>(oculta)</small>' : ''}
           · ${a.kind}${a.planK !== 1 ? ' · ×' + a.planK.toFixed(2) + ' en su plan' : ''}<br><small>${esc(a.desc)}</small></li>`).join('') + '</ul>' : '';
-      const plan = r.plan.map(m => `<li>${chip(m.type)} <b>${esc(m.name)}</b> <small>${catTxt(m.cat)}${m.tm ? ' · MT' : ''}${m.fit < 0.95 ? ' · rinde ' + Math.round(m.fit * 100) + ' %' : ''}</small>
-          ${m.evo ? `<br><small>🔁 Al máximo + <b>${esc(m.evoName)}</b> → ${esc(m.name)} +</small>` : '<br><small>(no evoluciona)</small>'}</li>`).join('');
+      const plan = r.plan.map(m => `<li>${m.pinned ? '📌 ' : ''}${chip(m.type)} <b>${esc(m.name)}</b> <small>${catTxt(m.cat)}${m.tm ? ' · MT' : ''}${m.fit < 0.95 ? ' · rinde ' + Math.round(m.fit * 100) + ' %' : ''}</small>
+          ${m.evo ? `<br><small>🔁 Al máximo + <b>${esc(m.evoName)}</b> → ${esc(m.name)} +</small>` : `<br><small>(${m.buff ? 'potenciador, ' : ''}no evoluciona)</small>`}</li>`).join('');
+      const planHead = r.custom
+        ? ` <small>· 📌 fijado por ti</small> <button type="button" class="psg-mini" data-reset="${r.dex}">↺ Volver al calculado</button>`
+        : ' <small>· calculado</small>';
       const evo = r.evoStats.length ? `<p>⭐ Mejoras de stat a priorizar para sus evoluciones: <b>${r.evoStats.map(esc).join(', ')}</b>.</p>` : '';
       let start = '';
       if (r.start) {
@@ -479,7 +553,9 @@
         }
       }
       const tms = r.tmBuy.length ? `<p>📀 MT que entrarían en su plan: ${r.tmBuy.slice(0, 3).map(m => '<b>' + esc(m.name) + '</b>').join(', ')}.</p>` : '';
-      const all = r.attacks.concat(r.moves.filter(m => m.buff)).map(m => `<tr><td>${chip(m.type)} ${esc(m.name)}${m.tm ? ' <small>MT</small>' : ''}</td>
+      const all = r.attacks.concat(r.moves.filter(m => m.buff)).map(m => `<tr><td><button type="button" class="psg-pin${m.pinned ? ' on' : ''}"
+            data-dex="${r.dex}" data-pin="${esc(m.id)}" title="${m.pinned ? 'Soltar del plan' : 'Fijar en el plan'}">📌</button></td>
+          <td>${chip(m.type)} ${esc(m.name)}${m.tm ? ' <small>MT</small>' : ''}</td>
           <td>${catTxt(m.cat)}</td><td>${m.buff ? '—' : Math.round(m.score)}</td><td>${m.evo ? esc(m.evoName) : '—'}</td></tr>`).join('');
       return `<div class="psg-det">
         <div class="psg-sec"><h4>Naturaleza ${nv[0]} ${nv[1]}</h4>
@@ -488,10 +564,12 @@
         <div class="psg-sec"><h4>Habilidad ${av[0]} ${av[1]}</h4>
           <p><b>${esc(r.abil.name)}</b>${r.abSlot === 2 ? ' <small>(oculta)</small>' : ''}: ${esc(r.abil.desc)}</p>
           <p>${esc(r.abWhy)}</p>${abOpts}</div>
-        <div class="psg-sec"><h4>Plan de 4 ataques</h4><ol>${plan}</ol>${evo}${start}${tms}
+        <div class="psg-sec"><h4>Plan de 4 ataques${planHead}</h4><ol>${plan}</ol>${evo}${start}${tms}
+          <p><small>Para elegir tú el plan, abre «Todos sus ataques» y toca 📌 (hasta 4). Los huecos que
+          dejes se rellenan con los mejores calculados. Las cartas de nivel siguen este plan.</small></p>
           <p><small>Mejoras compradas para este Pokémon: ${r.upgLv}. Partidas jugadas con él: ${r.used}.</small></p></div>
-        <details class="psg-sec"><summary>Todos sus ataques (${r.moves.length})</summary>
-          <table><tr><th>Ataque</th><th>Clase</th><th>Potencia</th><th>Evoluciona con</th></tr>${all}</table></details>
+        <details class="psg-sec psg-all"${allOpen ? ' open' : ''}><summary>Todos sus ataques (${r.moves.length}) · 📌 para fijar</summary>
+          <table><tr><th></th><th>Ataque</th><th>Clase</th><th>Potencia</th><th>Evoluciona con</th></tr>${all}</table></details>
       </div>`;
     }
 
@@ -530,11 +608,14 @@
       #psg-an table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
       #psg-an td,#psg-an th{padding:3px 4px;border-bottom:1px solid #ffffff14;text-align:left}
       #psg-an small{color:#9fb1c9}
+      #psg-an .psg-pin{background:none;border:1px solid #ffffff22;border-radius:6px;padding:2px 5px;cursor:pointer;filter:grayscale(1);opacity:.45}
+      #psg-an .psg-pin.on{filter:none;opacity:1;border-color:#ffd23f;background:#ffd23f22}
+      #psg-an .psg-mini{font-family:inherit;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid #ffd23f88;background:none;color:#ffd23f;cursor:pointer;margin-left:4px}
       @media (max-width:560px){#psg-an .psg-row{grid-template-columns:1fr 70px}#psg-an .psg-row-tags{grid-column:1/-1;flex-direction:row;gap:12px}}
     `;
     (document.head || document.documentElement).appendChild(css);
 
-    return { open, close, analyze: A.analyze };
+    return { open, close, analyze: A.analyze, togglePin: A.togglePin, resetPins: A.resetPins };
   }
 
   function install(G) {
@@ -685,6 +766,7 @@
         bar.id = 'psg-bar';
         bar.setAttribute('translate', 'no');
         bar.innerHTML = '<button type="button" class="psg-chip" data-k="auto"></button>'
+          + '<button type="button" class="psg-chip" data-k="style"></button>'
           + '<button type="button" class="psg-chip" data-k="plan"></button>'
           + '<button type="button" class="psg-chip" data-k="free"></button>'
           + '<div class="psg-plan"></div><div class="psg-note"></div>';
@@ -701,6 +783,11 @@
           // (si no, apagar y encender sería un «cambiar opciones» gratis).
           if (cfg.free) regenerate();
         });
+        onTap(bar.querySelector('[data-k="style"]'), () => {
+          cfg.style = STYLE_ORDER[(STYLE_ORDER.indexOf(cfg.style) + 1) % STYLE_ORDER.length]; saveCfg();
+          if (cfg.free && !coopActive()) regenerate(); else rescore();
+          paintBar();
+        });
         onTap(bar.querySelector('[data-k="plan"]'), () => {
           cfg.plan = !cfg.plan; saveCfg();
           // Con el modo libre las cartas salen del plan: se vuelven a sacar; si no, sólo se repuntúan.
@@ -713,6 +800,9 @@
       a.classList.toggle('on', cfg.auto);
       f.textContent = '🔓 Modo libre: ' + (cfg.free ? 'ON' : 'OFF');
       f.classList.toggle('on', cfg.free);
+      const sb = bar.querySelector('[data-k="style"]');
+      sb.textContent = styleOf().label;
+      sb.classList.toggle('on', cfg.style !== 'equilibrado');
       const pb = bar.querySelector('[data-k="plan"]');
       pb.textContent = '📋 Plan: ' + (cfg.plan ? 'ON' : 'OFF');
       pb.classList.toggle('on', cfg.plan);

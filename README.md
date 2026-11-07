@@ -17,6 +17,10 @@ lista con todos tus Pokémon, ordenable por *Más potentes*, *Naturaleza o habil
 - **Plan de 4 ataques**: los que más daño le darían ya evolucionados, con su **combo de
   evolución** (ataque al máximo + la mejora de stat que pide → «Ataque +») y las mejoras de
   stat que conviene coger en la partida.
+- **Fijar tu propio plan**: en *Todos sus ataques* toca 📌 junto a los ataques que quieras
+  (hasta 4, también potenciadores). Van primero en el plan y los huecos que dejes se rellenan
+  con los mejores calculados. *↺ Volver al calculado* lo deshace. Se guarda en este navegador,
+  por cuenta y por Pokémon, y **las cartas de nivel siguen ese plan**.
 - **Movimiento inicial**: si el que tiene está en su plan o cuál le iría mejor.
 - **MT** que entrarían en su plan, y la tabla con todos sus ataques posibles.
 
@@ -30,6 +34,12 @@ comparado con el mejor de tu colección. Sirve para comparar, no es el daño exa
   (evolución lista, desbloquea una evolución, ataque de tu lado fuerte, vida baja…).
 - **Interruptor 👆 Selección / 🤖 Automático:** en *Selección* sólo te recomienda;
   en *Automático* elige la recomendada sola, un instante después de abrirse las cartas.
+- **Interruptor de estilo ⚖️ Equilibrado / 🛡️ Aguante / ⚔️ Daño** (cada toque pasa al siguiente):
+  - *Aguante*: más prioridad a Vigor, Coraza y Síntesis (y algo a Carrera), menos a Potencia y
+    Reflejos; la Baya Zidra se recomienda antes (por debajo del 50 % de vida).
+  - *Daño*: más prioridad a Potencia, Reflejos y a mejorar tus ataques, menos a las defensas;
+    la Baya Zidra sólo con muy poca vida (por debajo del 25 %).
+  - *Equilibrado*: los valores de la tabla de abajo.
 - **Interruptor 📋 Plan (ON/OFF, encendido de serie):** el selector sigue el *plan de 4
   ataques* que el analizador calcula para el Pokémon con el que juegas. Encima de las cartas
   verás el plan (✔ los que ya tienes) y las mejoras de stat que piden sus evoluciones. Con el
@@ -43,7 +53,7 @@ comparado con el mejor de tu colección. Sirve para comparar, no es el daño exa
   **La partida en la que lo uses no se sube al ranking**: así no compites con ventaja
   contra quien juega limpio. En cooperativo no se puede activar.
 
-Los tres interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
+Los cuatro interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
 > Las cartas **no se pueden saber antes**: el juego las sortea con `Math.random()` en
 > el momento exacto de subir de nivel. Lo que sí se conoce son todas las cartas
@@ -74,7 +84,7 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.3.0 activo».
+   Al cargar verás el aviso «Ayudante PSG 0.4.0 activo».
 
 Si no aparece ese aviso: en Violentmonkey, abre el script y comprueba que el modo de
 inyección es **page** (el script ya lo pide con `@inject-into page`).
@@ -97,7 +107,9 @@ Heurística sencilla, pensada para ajustarla con la experiencia:
 | Vigor / Coraza / Síntesis | 170 / 170 / 150 | +160 si tienes menos de la mitad de vida |
 | Aprendizaje | 230 hasta nivel 10, luego 80 | |
 | Potenciadores (Danza Espada…) | 120–230 | No hacen daño por sí solos |
-| **Con Plan ON:** ataque nuevo del plan | +250 | |
+| **🛡️ Aguante** | Vigor/Coraza +130, Síntesis +120, Carrera +40, Potencia −40, Reflejos −20, mejorar ataque −20 | Baya Zidra: 900 con < 50 % de vida, 260 con < 80 % |
+| **⚔️ Daño** | Potencia +120, Reflejos +100, mejorar ataque +60, Vigor/Coraza −70, Síntesis −60 | Baya Zidra: 900 con < 25 %, 260 con < 45 % |
+| **Con Plan ON:** ataque nuevo del plan | +250 | (potenciador fijado en el plan: 480) |
 | **Con Plan ON:** mejorar un ataque del plan | +100 | |
 | **Con Plan ON:** mejora de stat que pide una evolución del plan | +120 | Sólo hasta cogerla una vez |
 | **Con Plan ON:** ataque o potenciador de fuera que quita hueco al plan | hasta −200 | Según lo peor que sea; la mitad con menos de 2 ataques |
