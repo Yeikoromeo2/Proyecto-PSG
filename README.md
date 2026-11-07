@@ -6,14 +6,19 @@ un **analizador de tu colección** y una **ayuda con las cartas** que salen al s
 ## Analizador de colección
 
 En el menú principal aparece el botón **Analizador PSG** (debajo de *Pokémon*). Abre una
-lista con todos tus Pokémon, ordenable por *Más potentes*, *Naturaleza o habilidad a revisar*,
-*Más usados* o *Nº de Pokédex*, y con buscador. Tocando uno ves:
+lista con todos tus Pokémon, cada uno con dos barras (⚔ potencia y 🛡 aguante, de 0 a 100
+respecto al mejor de tu colección), ordenable por *Más potentes*, *Más aguante*,
+*Potencia + aguante*, *Naturaleza o habilidad a revisar*, *Más usados* o *Nº de Pokédex*,
+y con buscador. Tocando uno ves:
 
 - **Naturaleza** (✅ ideal/buena · ➖ normal/neutra · ⚠️ floja · ❌ mala): se juzga según el
   lado con el que pega su mejor plan (físico o especial). Si no es la ideal, te dice qué
   **Menta** comprar (Firme / Modesta, o Huraña / Afable si su plan mezcla los dos lados).
 - **Habilidad**: qué hace, y cómo rinde cada una de sus opciones (también la oculta) sobre
   su plan. Si otra le da claramente más daño, te dice qué **Cápsula** usar.
+- **Aguante**: su vida (con la de tus mejoras), cuánto más o menos daño físico y especial
+  recibe según su Defensa y Defensa Especial (el juego lo deja entre −22 % y +25 %), su
+  velocidad respecto a la media y lo que suman tus mejoras compradas (Coraza, regeneración…).
 - **Plan de 4 ataques**: los que más daño le darían ya evolucionados, con su **combo de
   evolución** (ataque al máximo + la mejora de stat que pide → «Ataque +») y las mejoras de
   stat que conviene coger en la partida.
@@ -24,9 +29,12 @@ lista con todos tus Pokémon, ordenable por *Más potentes*, *Naturaleza o habil
 - **Movimiento inicial**: si el que tiene está en su plan o cuál le iría mejor.
 - **MT** que entrarían en su plan, y la tabla con todos sus ataques posibles.
 
-La «Potencia» es un índice aproximado (daño × proyectiles ÷ recarga, con extra para los
-ataques de área, su naturaleza, su habilidad y el bonus de Pokémon de un solo tipo),
-comparado con el mejor de tu colección. Sirve para comparar, no es el daño exacto.
+La **potencia** es un índice aproximado (daño × proyectiles ÷ recarga, con extra para los
+ataques de área, su naturaleza, su habilidad, el bonus de Pokémon de un solo tipo y tus
+mejoras compradas de ataque, recarga y crítico). El **aguante** es su vida entre el daño
+medio que recibe (mitad físico, mitad especial), más la regeneración de tus mejoras, ajustado
+por su velocidad (raíz de su velocidad entre la media) y +8 % si su habilidad es defensiva.
+Los dos sirven para comparar tus Pokémon, no son números exactos de la partida.
 
 ## Ayuda con las cartas de nivel
 
@@ -84,7 +92,7 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.4.0 activo».
+   Al cargar verás el aviso «Ayudante PSG 0.5.0 activo».
 
 Si no aparece ese aviso: en Violentmonkey, abre el script y comprueba que el modo de
 inyección es **page** (el script ya lo pide con `@inject-into page`).

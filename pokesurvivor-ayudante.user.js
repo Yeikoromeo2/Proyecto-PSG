@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.4.0
+// @version      0.5.0
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -34,7 +34,7 @@
  *    En cooperativo no se usa.
  *
  *  - Analizador de colección: botón «Analizador PSG» en el menú principal.
- *    Para cada Pokémon tuyo dice si su naturaleza y su habilidad le van bien,
+ *    Para cada Pokémon tuyo: potencia y aguante, si su naturaleza y su habilidad le van bien,
  *    propone un plan de 4 ataques con sus combos de evolución, MT y movimiento inicial.
  *
  *  - Se inyecta en «document-start» para ejecutarse antes de que el juego
@@ -45,7 +45,7 @@
 
   const W = window;
   if (W.__psgMod) return;
-  const VERSION = '0.4.0';
+  const VERSION = '0.5.0';
 
   // ---------------- ajustes (sólo en este navegador) ----------------
 
@@ -246,6 +246,12 @@
     const nm = n => { try { return G.Mons.name(n); } catch (e) { return String(n); } };
     const typeName = t => (G.U && G.U.TYPE_NAME && G.U.TYPE_NAME[t]) || t;
     const moveName = d => { try { return G.T(d.name, 'move'); } catch (e) { return d.name; } };
+    // Velocidad de referencia: la mediana de todos los Pokémon del juego.
+    let refSpdV = 0;
+    const refSpd = () => refSpdV || (refSpdV = (() => {
+      const l = (G.DEX || []).map(p => +p.spd).filter(v => v > 0).sort((a, b) => a - b);
+      return l.length ? l[Math.floor(l.length / 2)] : 100;
+    })());
     const natName = n => (n ? nm(n.n) : '');
 
     // Plan fijado a mano (por cuenta: la fecha de creación de la partida la identifica).
@@ -342,7 +348,11 @@
       else if (nat.up === sideStat) { natV = 'ideal'; natWhy = 'Sube su ' + STAT_ES[sideStat] + ', que es con lo que más pega.'; }
       else if (nat.up === offStat && !usesOff) { natV = 'floja'; natWhy = 'Sube ' + STAT_ES[offStat] + ', que su plan casi no usa.'; }
       else if (!nat.up) { natV = 'neutra'; natWhy = 'No cambia ningún stat.'; }
-      else { natV = 'normal'; natWhy = 'Sube ' + STAT_ES[nat.up] + ' y baja ' + STAT_ES[nat.down] + ': no toca su ataque principal.'; }
+      else {
+        natV = 'normal';
+        natWhy = 'Sube ' + STAT_ES[nat.up] + (['df', 'sd', 'spd'].includes(nat.up) ? ' (más aguante)' : '')
+          + ' y baja ' + STAT_ES[nat.down] + ': no toca su ataque principal.';
+      }
       const bestNat = G.NATURE_BY[side === 'special' ? (usesOff ? 'mild' : 'modest') : (usesOff ? 'lonely' : 'adamant')];
 
       // ---- habilidad: sus opciones comparadas sobre el plan ----
@@ -388,6 +398,22 @@
         const bestStart = plan.find(m => choices.includes(m.id));
         if (bestStart && start && bestStart.id !== start.id && bestStart.score > start.score * 1.1) startRec = bestStart;
       } catch (e) { /* nada */ }
+      // ---- mejoras compradas (Mejoras del menú) y aguante ----
+      // (se leen sin G.DB.upgradesOf, que crea la entrada en la partida si no existe)
+      const lv = (s && s.pupg && s.pupg[dex]) || {};
+      let perks = {};
+      try { perks = (G.Upgrades && G.Upgrades.perks(lv)) || {}; } catch (e) { /* nada */ }
+      const tP = G.Stats.taken(mon, 'physical'), tS = G.Stats.taken(mon, 'special');
+      const hpTot = (+mon.hp || 0) + (+perks.hp || 0);
+      const takenAvg = ((tP + tS) / 2) * (1 - (+perks.dmgReduce || 0));     // enemigos físicos y especiales a medias
+      const spd = (+mon.spd || 0) * (+perks.spdMul || 1);
+      const spdK = Math.sqrt(Math.max(0.2, spd / refSpd()));               // correr ayuda a esquivar
+      const defAbil = cur.kind === 'defensiva';
+      const tough = (hpTot / Math.max(0.1, takenAvg) + (+perks.regen || 0) * 20) * spdK * (defAbil ? 1.08 : 1);
+      const toughInfo = { hp: +mon.hp || 0, hpUp: +perks.hp || 0, df: mon.df, sd: mon.sd, tP, tS, spd, spdK,
+        spdUp: +perks.spdMul || 1, regen: +perks.regen || 0, dmgReduce: +perks.dmgReduce || 0, defAbil };
+      const perkK = (+perks.atkMul || 1) / Math.max(0.1, +perks.cdMul || 1) * (1 + (+perks.crit || 0) * 0.5);
+
       const hasStartUpg = !!(s && s.pupg && s.pupg[dex] && s.pupg[dex].start);
       const upgLv = Object.values((s && s.pupg && s.pupg[dex]) || {}).reduce((a, v) => a + (+v || 0), 0);
 
@@ -397,7 +423,7 @@
         abil: cur, abilOpts, abV, abWhy, abSlot: ab.slot,
         moves, attacks, plan, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
         used: (s && s.pused && +s.pused[dex]) || 0,
-        power: plan.reduce((a, m) => a + m.score, 0)
+        power: plan.reduce((a, m) => a + m.score, 0) * perkK, perkK, tough, toughInfo
       };
     }
 
@@ -437,8 +463,8 @@
     }
     function close() { if (el) el.classList.add('psg-hidden'); }
     function rescale() {
-      const top = Math.max(1, ...rows.map(r => r.power));
-      rows.forEach(r => { r.pct = Math.round(100 * r.power / top); });
+      const top = Math.max(1, ...rows.map(r => r.power)), topT = Math.max(1, ...rows.map(r => r.tough));
+      rows.forEach(r => { r.pct = Math.round(100 * r.power / top); r.tpct = Math.round(100 * r.tough / topT); });
     }
     /** Vuelve a analizar un Pokémon (tras fijar o soltar un ataque) y repinta sin moverse. */
     function refresh(dex) {
@@ -461,13 +487,16 @@
           <input type="search" placeholder="Buscar Pokémon…" autocomplete="off">
           <select>
             <option value="power">Más potentes</option>
+            <option value="tough">Más aguante</option>
+            <option value="both">Potencia + aguante</option>
             <option value="fix">Naturaleza o habilidad a revisar</option>
             <option value="used">Más usados</option>
             <option value="dex">Nº de Pokédex</option>
           </select>
         </div>
-        <p class="psg-an-help">Potencia = índice aproximado del daño de sus 4 mejores ataques ya evolucionados, con su naturaleza
-          y su habilidad, comparado con el mejor de tu colección. Toca un Pokémon para ver el detalle.</p>
+        <p class="psg-an-help">⚔ Potencia: daño aproximado de sus 4 ataques del plan ya evolucionados, con su naturaleza,
+          su habilidad y tus mejoras compradas. 🛡 Aguante: su vida entre el daño que recibe según sus defensas, con su
+          velocidad, su habilidad y tus mejoras. Ambos comparados con el mejor de tu colección (100). Toca un Pokémon para ver el detalle.</p>
         <div class="psg-an-list"></div>`;
       document.body.appendChild(el);
       el.querySelector('.psg-an-x').addEventListener('click', close);
@@ -510,6 +539,8 @@
       let shown = rows.filter(r => !query || fold(r.name).includes(query));
       const by = {
         power: (a, b) => b.power - a.power,
+        tough: (a, b) => b.tough - a.tough,
+        both: (a, b) => (b.pct + b.tpct) - (a.pct + a.tpct) || b.power - a.power,
         fix: (a, b) => needsFix(b) - needsFix(a) || b.power - a.power,
         used: (a, b) => b.used - a.used || b.power - a.power,
         dex: (a, b) => a.dex - b.dex
@@ -520,7 +551,8 @@
         const nv = VERD[r.natV] || VERD.normal, av = VERD[r.abV] || VERD.normal;
         return `<div class="psg-row${openDex === r.dex ? ' open' : ''}" data-dex="${r.dex}">
             <div class="psg-row-name"><small>#${r.dex}</small> ${esc(r.name)} ${r.types.map(chip).join('')}</div>
-            <div class="psg-bar"><i style="width:${r.pct}%"></i><span>${r.pct}</span></div>
+            <div class="psg-bars"><div class="psg-bar" title="Potencia"><i style="width:${r.pct}%"></i><span>⚔ ${r.pct}</span></div>
+              <div class="psg-bar tough" title="Aguante"><i style="width:${r.tpct}%"></i><span>🛡 ${r.tpct}</span></div></div>
             <div class="psg-row-tags"><span title="Naturaleza">${nv[0]} ${esc(A.natName(r.nat))}</span>
               <span title="Habilidad">${av[0]} ${esc(r.abil.name)}</span></div>
           </div>${openDex === r.dex ? detail(r) : ''}`;
@@ -564,6 +596,7 @@
         <div class="psg-sec"><h4>Habilidad ${av[0]} ${av[1]}</h4>
           <p><b>${esc(r.abil.name)}</b>${r.abSlot === 2 ? ' <small>(oculta)</small>' : ''}: ${esc(r.abil.desc)}</p>
           <p>${esc(r.abWhy)}</p>${abOpts}</div>
+        <div class="psg-sec"><h4>Aguante 🛡 ${r.tpct}</h4>${toughHtml(r)}</div>
         <div class="psg-sec"><h4>Plan de 4 ataques${planHead}</h4><ol>${plan}</ol>${evo}${start}${tms}
           <p><small>Para elegir tú el plan, abre «Todos sus ataques» y toca 📌 (hasta 4). Los huecos que
           dejes se rellenan con los mejores calculados. Las cartas de nivel siguen este plan.</small></p>
@@ -571,6 +604,23 @@
         <details class="psg-sec psg-all"${allOpen ? ' open' : ''}><summary>Todos sus ataques (${r.moves.length}) · 📌 para fijar</summary>
           <table><tr><th></th><th>Ataque</th><th>Clase</th><th>Potencia</th><th>Evoluciona con</th></tr>${all}</table></details>
       </div>`;
+    }
+
+    const pctTxt = k => (k < 1 ? '−' + Math.round((1 - k) * 100) + ' %' : k > 1 ? '+' + Math.round((k - 1) * 100) + ' %' : 'igual');
+    function toughHtml(r) {
+      const t = r.toughInfo;
+      const up = [];
+      if (t.hpUp) up.push('+' + t.hpUp + ' de vida');
+      if (t.dmgReduce) up.push('−' + Math.round(t.dmgReduce * 100) + ' % de daño recibido');
+      if (t.regen) up.push('+' + t.regen.toFixed(1) + ' de vida/s');
+      if (t.spdUp > 1) up.push('+' + Math.round((t.spdUp - 1) * 100) + ' % de velocidad');
+      return `<p>❤️ Vida: <b>${t.hp + t.hpUp}</b>${t.hpUp ? ` <small>(${t.hp} + ${t.hpUp} de mejoras)</small>` : ''}</p>
+        <p>🛡 Defensa ${Math.round(t.df)}: daño físico recibido <b>${pctTxt(t.tP)}</b> ·
+          Def. Esp. ${Math.round(t.sd)}: daño especial <b>${pctTxt(t.tS)}</b> <small>(con 75 es igual; el juego lo deja entre −22 % y +25 %)</small></p>
+        <p>👟 Velocidad ${Math.round(t.spd)}: ${t.spdK >= 1 ? 'por encima' : 'por debajo'} de la media de los Pokémon del juego.</p>
+        ${up.length ? `<p>⬆️ Tus mejoras: ${up.join(' · ')}.</p>` : ''}
+        ${t.defAbil ? '<p>✨ Su habilidad es defensiva (cuenta un poco).</p>' : ''}
+        <p><small>Para aguantar más en partida: estilo 🛡️ Aguante en las cartas (Vigor, Coraza, Síntesis).</small></p>`;
     }
 
     const css = document.createElement('style');
@@ -593,6 +643,8 @@
       #psg-an .psg-type{display:inline-block;font-size:10px;padding:1px 6px;border-radius:999px;color:#fff;margin-left:3px;vertical-align:middle;text-shadow:0 1px 1px #0008}
       #psg-an .psg-bar{position:relative;height:16px;border-radius:8px;background:#ffffff14;overflow:hidden}
       #psg-an .psg-bar i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#3f8cff,#ffd23f)}
+      #psg-an .psg-bar.tough i{background:linear-gradient(90deg,#1f9d6a,#9be15d)}
+      #psg-an .psg-bars{display:flex;flex-direction:column;gap:3px}
       #psg-an .psg-bar span{position:relative;font-size:11px;padding-left:6px;color:#fff;text-shadow:0 1px 2px #000}
       #psg-an .psg-det{padding:4px 6px 10px;margin:0 0 8px;display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
       #psg-an .psg-sec{background:#ffffff0a;border-radius:10px;padding:8px 10px}

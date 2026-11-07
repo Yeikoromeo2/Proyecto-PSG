@@ -54,7 +54,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.evaluate(() => {
     G.DB.playAsGuest();
     const s = G.DB.save;
-    for (const d of [1, 4, 7, 25, 94, 130, 149, 448, 445, 658]) s.owned[d] = { at: Date.now(), from: 'gacha' };
+    for (const d of [1, 4, 7, 25, 94, 130, 143, 149, 448, 445, 658]) s.owned[d] = { at: Date.now(), from: 'gacha' };
     s.partner = 25;
   });
   // Naturaleza que baja justo el ataque con el que pega su plan (Firme si es especial, Modesta si es físico).
@@ -79,12 +79,26 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   console.log('       Pikachu → mejoras para evolucionar:', an.pika.evo.join(', '), '· habilidad:', an.pika.ab);
   await page.click('#psg-an .psg-row[data-dex="25"]');
   const det = await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-det h4')].map(h => h.textContent.trim()));
-  check(det.length === 3, 'detalle con naturaleza, habilidad y plan: ' + det.join(' | '));
+  check(det.length === 4, 'detalle con naturaleza, habilidad, aguante y plan: ' + det.join(' | '));
+  const tough = await page.evaluate(() => {
+    const A = window.__psgMod.analyzer;
+    const sel = document.querySelector('#psg-an select');
+    sel.value = 'tough'; sel.dispatchEvent(new Event('change'));
+    const first = document.querySelector('#psg-an .psg-row');
+    return { bars: document.querySelectorAll('#psg-an .psg-row .psg-bar.tough').length, rows: document.querySelectorAll('#psg-an .psg-row').length,
+      firstT: first.querySelector('.psg-bar.tough span').textContent, snorlax: Math.round(A.analyze(143).tough), pika: Math.round(A.analyze(25).tough),
+      firstName: first.querySelector('.psg-row-name').textContent.trim() };
+  });
+  check(tough.bars === tough.rows && /100/.test(tough.firstT), `barra de aguante en cada fila y orden «Más aguante» (primero: ${tough.firstName})`);
+  check(tough.snorlax > tough.pika, `Snorlax aguanta más que Pikachu (${tough.snorlax} > ${tough.pika})`);
+  await page.evaluate(() => { const sel = document.querySelector('#psg-an select'); sel.value = 'power'; sel.dispatchEvent(new Event('change')); });
+  await page.click('#psg-an .psg-row[data-dex="25"]').catch(() => {});
+  if (!(await page.evaluate(() => !!document.querySelector('#psg-an .psg-row.open[data-dex="25"]')))) await page.click('#psg-an .psg-row[data-dex="25"]');
   if (SHOTS) {
     await page.screenshot({ path: path.join(SHOTS, 'analizador.png') });
     await page.setViewportSize({ width: 412, height: 915 });
     await page.screenshot({ path: path.join(SHOTS, 'analizador-vertical.png') });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[2].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[3].scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-plan.png') });
     await page.setViewportSize({ width: 915, height: 412 });
@@ -100,7 +114,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(/fijado por ti/.test(pinned.head) && pinned.allOpen, 'el plan se marca como «fijado por ti» y la tabla sigue abierta');
   if (SHOTS) {
     await page.setViewportSize({ width: 412, height: 915 });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[2].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[3].scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-fijado.png') });
     await page.setViewportSize({ width: 915, height: 412 });
