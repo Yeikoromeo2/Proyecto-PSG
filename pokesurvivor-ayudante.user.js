@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.5.0
+// @version      0.6.0
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
 // @run-at       document-start
-// @inject-into  page
+// @inject-into  auto
 // @grant        none
 // ==/UserScript==
 
@@ -37,15 +37,37 @@
  *    Para cada Pokémon tuyo: potencia y aguante, si su naturaleza y su habilidad le van bien,
  *    propone un plan de 4 ataques con sus combos de evolución, MT y movimiento inicial.
  *
- *  - Se inyecta en «document-start» para ejecutarse antes de que el juego
- *    declare su Content-Security-Policy (que bloquea scripts añadidos después).
+ *  - Compatibilidad: el juego declara una Content-Security-Policy en su HTML que
+ *    bloquea los scripts añadidos a la página. Si el gestor (Violentmonkey en
+ *    Firefox, sobre todo en Android) no llega a tiempo, lo ejecuta en su espacio
+ *    aislado («@inject-into auto» → modo content). Ahí los objetos del juego se
+ *    ven a través de las «Xray» de Firefox: se leen con unsafeWindow, las funciones
+ *    que el juego tiene que llamar se exportan con exportFunction, los objetos que
+ *    el juego tiene que leer se copian con cloneInto y las listas del juego se
+ *    copian (arr) antes de recorrerlas con funciones nuestras. En la página normal
+ *    (Chrome, Tampermonkey) todo eso no hace nada.
  */
 (function () {
   'use strict';
 
-  const W = window;
-  if (W.__psgMod) return;
-  const VERSION = '0.5.0';
+  // Ventana del juego: la de la página (modo page) o la de debajo de la Xray (modo content de Firefox).
+  const W = (typeof unsafeWindow !== 'undefined' && unsafeWindow) || (window.wrappedJSObject) || window;
+  if (W.__psgMod || W.__psgModVersion) return;
+  const VERSION = '0.6.0';
+  // Herramientas de Firefox para el modo content (en modo page no existen y no hacen falta).
+  const XRAY = typeof exportFunction === 'function' && typeof cloneInto === 'function' && W !== window;
+  const MODE = XRAY ? 'content' : 'page';
+  /** Función nuestra que el juego tiene que poder llamar. */
+  const exp = f => (XRAY ? exportFunction(f, W) : f);
+  /** Objeto nuestro que el juego tiene que poder leer (sólo datos). */
+  const share = o => { if (!XRAY) return o; try { return cloneInto(o, W); } catch (e) { return o; } };
+  /** Objeto del juego visto sin Xray (argumentos que nos pasa el juego). */
+  const unX = o => (o && typeof o === 'object' && o.wrappedJSObject) || o;
+  /** Copia una lista (del juego o nuestra) en una lista nuestra, para recorrerla con nuestras funciones. */
+  const arr = a => { const out = []; if (!a) return out; const n = a.length >>> 0; for (let i = 0; i < n; i++) out.push(a[i]); return out; };
+  /** Lista nuestra → lista del juego (la que devolvemos al juego). */
+  const toPage = a => { if (!XRAY) return a; const out = new W.Array(); for (const x of a) out.push(x); return out; };
+  const movesOf = pl => arr(pl && pl.moves);
 
   // ---------------- ajustes (sólo en este navegador) ----------------
 
@@ -81,7 +103,7 @@
   /** stat -> movimiento al máximo que espera esa mejora para evolucionar. */
   function waitingStats(G, pl) {
     const out = {};
-    for (const m of pl.moves || []) {
+    for (const m of movesOf(pl)) {
       let ev = null;
       try { ev = G.Moves.evoInfo(m, pl.statsTaken); } catch (e) { /* nada */ }
       if (ev && !ev.ready) out[ev.needs] = m;
@@ -131,7 +153,7 @@
     }
 
     if (c.type === 'up') {
-      const m = (pl.moves || []).find(x => x.id === id);
+      const m = movesOf(pl).find(x => x.id === id);
       let s = 420, why = 'Mejora un ataque que ya tienes';
       const inPlan = !!(plan && plan.ids.includes(id));
       if (m) {
@@ -150,11 +172,12 @@
 
     if (c.type === 'new') {
       const d = (G.Moves && G.Moves.BY_ID && G.Moves.BY_ID[id]) || {};
-      const dmgMoves = (pl.moves || []).filter(m => m.kind !== 'buff').length;
+      const dmgMoves = movesOf(pl).filter(m => m.kind !== 'buff').length;
       // Plan: si los huecos libres no sobran, un ataque de fuera le quitaría el sitio a uno del
       // plan. Se castiga según lo peor que sea que el más flojo de los que faltan (el que se
       // quedaría fuera), y la mitad si aún tienes menos de 2 ataques (urge tener con qué pegar).
-      const missing = plan ? plan.ids.filter(x => !(pl.moves || []).some(m => m.id === x)) : [];
+      const learned = movesOf(pl);
+      const missing = plan ? plan.ids.filter(x => !learned.some(m => m.id === x)) : [];
       const free = (pl.maxMoves || 4) - ((pl.slots && pl.slots.length) || 0);
       let penalty = 0, crowdWhy = '';
       if (plan && !plan.ids.includes(id) && missing.length > 0 && free <= missing.length) {
@@ -183,17 +206,19 @@
     return [0, ''];
   }
 
+  // La puntuación va en la propia carta del juego, sólo con datos simples (número y texto).
   function annotate(G, list, pl, plan) {
     const ctx = { waiting: waitingStats(G, pl), plan };
-    for (const c of list) {
-      try { const r = score(G, c, pl, ctx); c.__psg = { s: r[0], w: r[1] }; }
-      catch (e) { c.__psg = { s: 0, w: '' }; }
+    for (const c of arr(list)) {
+      try { const r = score(G, c, pl, ctx); c.__psgS = r[0]; c.__psgW = r[1]; }
+      catch (e) { c.__psgS = 0; c.__psgW = ''; }
     }
   }
+  const sc = c => (c && +c.__psgS) || 0;
 
   function bestIndex(list) {
     let b = 0;
-    list.forEach((c, i) => { if (((c.__psg && c.__psg.s) || 0) > ((list[b].__psg && list[b].__psg.s) || 0)) b = i; });
+    for (let i = 1; i < (list.length >>> 0); i++) if (sc(list[i]) > sc(list[b])) b = i;
     return b;
   }
 
@@ -219,7 +244,8 @@
   function notFound() {
     if (!document.getElementById('cards')) return;   // no es la página del juego
     const d = document.createElement('div');
-    d.textContent = 'Ayudante PSG: no encuentro el juego. En Violentmonkey/Tampermonkey pon el modo de inyección en «page».';
+    d.textContent = 'Ayudante PSG ' + VERSION + ' (' + MODE + '): no encuentro el juego. Comprueba que el script está '
+      + 'actualizado y que su modo de inyección es «auto» (o «content» en Firefox). Toca para cerrar.';
     d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;padding:8px 10px;border-radius:8px;'
       + 'background:#3a1010;color:#ffd0d0;font:13px/1.3 sans-serif;text-align:center';
     d.onclick = () => d.remove();
@@ -249,7 +275,7 @@
     // Velocidad de referencia: la mediana de todos los Pokémon del juego.
     let refSpdV = 0;
     const refSpd = () => refSpdV || (refSpdV = (() => {
-      const l = (G.DEX || []).map(p => +p.spd).filter(v => v > 0).sort((a, b) => a - b);
+      const l = arr(G.DEX).map(p => +p.spd).filter(v => v > 0).sort((a, b) => a - b);
       return l.length ? l[Math.floor(l.length / 2)] : 100;
     })());
     const natName = n => (n ? nm(n.n) : '');
@@ -284,8 +310,12 @@
     /** Habilidad: nombre, texto, tipo y su multiplicador de daño sobre un movimiento. */
     function abilityInfo(id, base, mon) {
       const fx = (G.AbilityFX && G.AbilityFX.of(id, base)) || {};
-      const pl = { hp: 100, maxHp: 100, level: 10, mon, moxie: 0, kills: 0, x: 0, y: 0, abil: fx, statsTaken: {}, moves: [] };
-      const foe = { types: ['normal'], hp: 100, maxHp: 100, x: 0, y: 0, mon: { types: ['normal'] } };
+      // Jugador y enemigo de mentira para preguntarle a la habilidad cuánto daño suma.
+      // (el Pokémon, copiado como datos simples para que también se pueda compartir en modo content)
+      const monD = { dex: mon.dex, name: mon.name, types: arr(mon.types), hp: mon.hp, pa: mon.pa, sa: mon.sa, atk: mon.atk,
+        df: mon.df, sd: mon.sd, spd: mon.spd };
+      const pl = share({ hp: 100, maxHp: 100, level: 10, mon: monD, moxie: 0, kills: 0, x: 0, y: 0, statsTaken: {}, moves: [] });
+      const foe = share({ types: ['normal'], hp: 100, maxHp: 100, x: 0, y: 0, mon: { types: ['normal'] } });
       const mul = inst => {
         if (!fx.out || !inst) return 1;
         try { const k = +fx.out(pl, inst, foe); return isFinite(k) && k > 0 ? k : 1; } catch (e) { return 1; }
@@ -304,7 +334,8 @@
       if (evo) { const e = G.Moves.instance(id, max); if (G.Moves.evolve(e)) inst = e; }
       const statK = d.cat === 'special' ? mon.sa : d.cat === 'physical' ? mon.pa : 0;
       const statK0 = d.cat === 'special' ? base.sa : d.cat === 'physical' ? base.pa : 0;   // sin naturaleza
-      const monoK = base.types.length === 1 && d.type === base.types[0] ? 1.2 : 1;   // Player.MONO_K
+      const types = arr(base.types);
+      const monoK = types.length === 1 && d.type === types[0] ? 1.2 : 1;   // Player.MONO_K
       const idx = moveIndex(inst) * monoK;
       return {
         id, d, inst, name: moveName(d), type: d.type, cat: d.cat, kind: d.kind, buff: d.kind === 'buff',
@@ -318,11 +349,11 @@
       if (!base) return null;
       const mon = G.Mons.monFor(dex);
       const nat = G.Mons.natureOf(dex), rolled = G.Mons.rolledNature(dex);
-      const taught = new Set(G.Mons.taught(dex));
+      const taught = new Set(arr(G.Mons.taught(dex)));
       const ab = G.Mons.abilityOf(dex);
       const abil = abilityInfo(ab.id, base, mon);
 
-      const moves = G.Moves.poolFor(base).map(id => moveInfo(id, base, mon, taught)).filter(Boolean);
+      const moves = arr(G.Moves.poolFor(base)).map(id => moveInfo(id, base, mon, taught)).filter(Boolean);
       for (const m of moves) { m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK; m.score0 = m.val0 * m.abilK; }
       const attacks = moves.filter(m => !m.buff).sort((a, b) => b.score - a.score);
       const slotsN = 4;
@@ -356,7 +387,7 @@
       const bestNat = G.NATURE_BY[side === 'special' ? (usesOff ? 'mild' : 'modest') : (usesOff ? 'lonely' : 'adamant')];
 
       // ---- habilidad: sus opciones comparadas sobre el plan ----
-      const slots = G.Mons.slots(dex), seen = new Set(), abilOpts = [];
+      const slots = arr(G.Mons.slots(dex)), seen = new Set(), abilOpts = [];
       slots.forEach((id, slot) => {
         if (!id || seen.has(id)) return;
         seen.add(id);
@@ -380,7 +411,7 @@
       const cut = plan.length < slotsN ? 0 : autoPart.length ? autoPart[autoPart.length - 1].score : Infinity;
       const tmBuy = [];
       try {
-        for (const id of G.Mons.learnable(dex)) {
+        for (const id of arr(G.Mons.learnable(dex))) {
           const m = moveInfo(id, base, mon, new Set([id]));
           if (!m || m.buff) continue;
           m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK;
@@ -394,7 +425,7 @@
       try {
         const sid = G.startMoveOf ? G.startMoveOf(dex) : G.Moves.startFor(base);
         start = moves.find(m => m.id === sid) || moveInfo(sid, base, mon, taught);
-        const choices = G.startChoices ? G.startChoices(dex) : [];
+        const choices = G.startChoices ? arr(G.startChoices(dex)) : [];
         const bestStart = plan.find(m => choices.includes(m.id));
         if (bestStart && start && bestStart.id !== start.id && bestStart.score > start.score * 1.1) startRec = bestStart;
       } catch (e) { /* nada */ }
@@ -418,7 +449,7 @@
       const upgLv = Object.values((s && s.pupg && s.pupg[dex]) || {}).reduce((a, v) => a + (+v || 0), 0);
 
       return {
-        dex, base, mon, name: base.name, types: base.types, side,
+        dex, base, mon, name: base.name, types: arr(base.types), side,
         nat, rolled, natChanged: !!(s && s.pnat && s.pnat[dex]), natV, natWhy, bestNat,
         abil: cur, abilOpts, abV, abWhy, abSlot: ab.slot,
         moves, attacks, plan, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
@@ -671,21 +702,33 @@
   }
 
   function install(G) {
-    W.__psgMod = { version: VERSION, cfg };
+    // Objeto para depurar desde la consola (y para tests/e2e.cjs). En modo content el juego no
+    // puede leer objetos nuestros: sólo se deja una marca con la versión.
+    const mod = { version: VERSION, mode: MODE, cfg };
+    if (XRAY && !W.__psgSimXray) W.__psgModVersion = VERSION; else W.__psgMod = mod;   // (__psgSimXray: tests/e2e.cjs)
 
     const origOffer = G.LevelUp.offer;
     const origShow = G.RunUI.showLevelUp;
 
-    let lastList = null, token = 0, autoT = 0, freeShift = 0, regenerating = false;
-    let forcedFor = null;          // objeto jugador de la partida que ha usado el modo libre
+    let lastList = null, token = 0, autoT = 0, freeShift = 0, regenerating = false, runSeq = 0;
     let shown = null;              // { level, cb, coop } de la pantalla de cartas abierta
+    // Si algo nuestro falla, se avisa en pantalla (para poder mandar una captura) y el juego sigue como siempre.
+    let lastErr = 0;
+    const report = (where, e) => {
+      console.error('[PSG] ' + where, e);
+      if (Date.now() - lastErr < 8000) return;
+      lastErr = Date.now();
+      try { G.UI.toast('Ayudante PSG (' + MODE + ') · error en ' + where + ': ' + ((e && e.message) || e), 6000); } catch (x) { /* nada */ }
+    };
 
     const core = analyzerCore(G);
-    let planCache = { pl: null, v: null };
+    let planCache = { run: 0, v: null };
+    /** Nº de partida (se apunta en el propio jugador, que es nuevo en cada partida). */
+    const runOf = pl => (pl.__psgRun || (pl.__psgRun = ++runSeq));
     /** Plan de 4 ataques del analizador para el Pokémon de esta partida (o null). */
     function planFor(pl) {
       if (!cfg.plan || !pl) return null;
-      if (planCache.pl === pl) return planCache.v;
+      if (planCache.run && planCache.run === runOf(pl)) return planCache.v;
       let v = null;
       try {
         const dex = pl.dex != null ? pl.dex : pl.mon && pl.mon.dex;
@@ -697,12 +740,13 @@
                 scores: Object.fromEntries(r.attacks.map(m => [m.id, m.score])) };
         }
       } catch (e) { console.warn('[PSG] no se pudo calcular el plan', e); }
-      planCache = { pl, v };
+      planCache = { run: runOf(pl), v };
       return v;
     }
 
     const coopActive = () => !!(G.Coop && G.Coop.active);
-    const runForced = () => !!forcedFor && forcedFor === G.Game.player;
+    // La partida que usa el modo libre se marca en su propio jugador (nuevo en cada partida).
+    const runForced = () => { const p = G.Game.player; return !!(p && p.__psgForced); };
     const toast = msg => { try { G.UI.toast(msg, 2600); } catch (e) { /* nada */ } };
     const screenOpen = () => {
       const el = document.getElementById('scr-levelup');
@@ -714,7 +758,7 @@
       const seen = new Map();
       for (let i = 0; i < 48; i++) {
         let l;
-        try { l = origOffer.call(G.LevelUp, pl, 3); } catch (e) { break; }
+        try { l = arr(origOffer.call(G.LevelUp, pl, 3)); } catch (e) { break; }
         for (const c of l) if (!seen.has(c.key)) seen.set(c.key, c);
       }
       return [...seen.values()];
@@ -723,7 +767,7 @@
     function freeOffer(pl, n) {
       const pool = fullPool(pl);
       annotate(G, pool, pl, planFor(pl));
-      pool.sort((a, b) => b.__psg.s - a.__psg.s);
+      pool.sort((a, b) => sc(b) - sc(a));
       const pinned = pool.filter(c => c.type === 'evo');          // la evolución sale siempre, como en el juego
       const rest = pool.filter(c => c.type !== 'evo');
       const room = Math.max(0, n - pinned.length);
@@ -731,32 +775,41 @@
       freeShift = !regenerating && screenOpen() ? freeShift + room : 0;
       const start = rest.length > room ? freeShift % rest.length : 0;
       const rotated = rest.slice(start).concat(rest.slice(0, start));
-      forcedFor = pl;
+      pl.__psgForced = true;
       return pinned.concat(rotated.slice(0, room)).slice(0, n);
     }
 
-    G.LevelUp.offer = function (pl, n = 3) {
-      let list;
-      if (cfg.free && pl && !coopActive()) list = freeOffer(pl, n);
-      else { list = origOffer.apply(this, arguments); if (pl) annotate(G, list, pl, planFor(pl)); }
-      lastList = list;
-      const my = ++token;
-      setTimeout(() => decorate(my), 0);         // el juego pinta las cartas justo después
-      return list;
-    };
+    G.LevelUp.offer = exp(function (plArg, n) {
+      try {
+        const pl = unX(plArg), k = n || 3;
+        let list;
+        if (cfg.free && pl && !coopActive()) list = toPage(freeOffer(pl, k));
+        else { list = unX(origOffer.call(G.LevelUp, pl, k)); if (pl) annotate(G, list, pl, planFor(pl)); }
+        lastList = list;
+        const my = ++token;
+        setTimeout(() => { try { decorate(my); } catch (e) { report('las cartas', e); } }, 0);   // el juego pinta las cartas justo después
+        return list;
+      } catch (e) {
+        report('el sorteo', e);
+        return origOffer.call(G.LevelUp, plArg, n);              // pase lo que pase, el juego sigue
+      }
+    });
 
-    G.RunUI.showLevelUp = function (level, list, cb, coop) {
+    // (Siempre con argumentos sueltos, nunca `arguments`: en modo content el juego no podría leerlo.)
+    G.RunUI.showLevelUp = exp(function (level, list, cb, coop) {
       shown = { level, cb, coop: !!coop };
-      return origShow.apply(this, arguments);
-    };
+      return origShow.call(G.RunUI, level, list, cb, coop);
+    });
 
     for (const fn of ['submitSolo', 'submitGroup']) {
       const orig = G.Ranking[fn];
       if (typeof orig !== 'function') continue;
-      G.Ranking[fn] = function () {
-        if (runForced()) { toast('Modo libre: esta partida no se sube al ranking'); return null; }
-        return orig.apply(this, arguments);
-      };
+      G.Ranking[fn] = exp(function (a, b, c) {
+        let blocked = false;
+        try { blocked = runForced(); } catch (e) { report('el ranking', e); }
+        if (blocked) { toast('Modo libre: esta partida no se sube al ranking'); return null; }
+        return orig.call(G.Ranking, a, b, c);
+      });
     }
 
     // ---------------- pantalla de cartas ----------------
@@ -769,13 +822,13 @@
       if (els.length !== lastList.length) return;
       const best = bestIndex(lastList);
       els.forEach((el, i) => {
-        const p = lastList[i].__psg;
-        if (!p || el.querySelector('.psg-badge')) return;
+        const c = lastList[i];
+        if (!c || c.__psgW == null || el.querySelector('.psg-badge')) return;
         el.classList.toggle('psg-best', i === best);
         const b = document.createElement('div');
         b.className = 'psg-badge';
         b.setAttribute('translate', 'no');       // el traductor del juego no debe tocarlo
-        b.textContent = (i === best ? '★ Recomendada · ' : '') + p.w;
+        b.textContent = (i === best ? '★ Recomendada · ' : '') + c.__psgW;
         (el.querySelector('.txt') || el).appendChild(b);
       });
       paintBar();
@@ -799,7 +852,7 @@
       regenerating = true;
       let list;
       try { list = G.LevelUp.offer(pl); } finally { regenerating = false; }
-      origShow.call(G.RunUI, shown.level, list, shown.cb, shown.coop);
+      try { origShow.call(G.RunUI, shown.level, list, shown.cb, shown.coop); } catch (e) { report('las cartas', e); }
     }
 
     function onTap(el, fn) {
@@ -861,7 +914,7 @@
       const pl = G.Game.player, plan = planFor(pl);
       let line = '';
       if (plan && pl) {
-        const has = id => (pl.moves || []).some(m => m.id === id);
+        const learned = movesOf(pl), has = id => learned.some(m => m.id === id);
         line = 'Plan: ' + plan.ids.map(id => (has(id) ? '✔ ' : '') + plan.names[id]).join(' · ');
         const st = Object.keys(plan.needs);
         if (st.length) {
@@ -899,13 +952,13 @@
     (document.head || document.documentElement).appendChild(css);
 
     // Para depurar desde la consola (y para tests/e2e.cjs).
-    W.__psgMod.score = (c, pl) => score(G, c, pl, { waiting: waitingStats(G, pl), plan: planFor(pl) });
-    W.__psgMod.plan = () => planFor(G.Game.player);
-    W.__psgMod.fullPool = () => (G.Game.player ? fullPool(G.Game.player) : []);
-    Object.defineProperty(W.__psgMod, 'forced', { get: runForced });
+    mod.score = (c, pl) => score(G, c, pl, { waiting: waitingStats(G, pl), plan: planFor(pl) });
+    mod.plan = () => planFor(G.Game.player);
+    mod.fullPool = () => (G.Game.player ? fullPool(G.Game.player) : []);
+    Object.defineProperty(mod, 'forced', { get: runForced });
 
-    try { W.__psgMod.analyzer = installAnalyzer(G, toast, core); }
+    try { mod.analyzer = installAnalyzer(G, toast, core); }
     catch (e) { console.error('[PSG] no se pudo instalar el analizador', e); }
-    toast('Ayudante PSG ' + VERSION + ' activo');
+    toast('Ayudante PSG ' + VERSION + ' activo' + (XRAY ? ' (modo compatible)' : ''));
   }
 })();

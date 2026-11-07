@@ -12,5 +12,14 @@
 - No subir aquí el código ni los sprites del juego (PolyForm Noncommercial / Nintendo).
 - Las partidas con «modo libre» no deben subir al ranking.
 
+## Compatibilidad con Firefox (modo content de Violentmonkey)
+- La CSP del juego bloquea la inyección en la página en Firefox Android: el script usa
+  `@inject-into auto` y debe funcionar también aislado (Xray de Firefox).
+- Reglas al tocar el código: las funciones que el juego llama se asignan con `exp()`; los objetos
+  nuestros que el juego lee, con `share()`; las listas del juego se copian con `arr()` antes de usar
+  `.map/.filter/.find/...` con funciones nuestras; las listas que devolvemos al juego, con `toPage()`;
+  en las cartas del juego sólo se guardan valores simples (`__psgS`, `__psgW`).
+
 ## Pruebas
 - `node tests/e2e.cjs /ruta/a/copia/de/pokesurvivor` (Playwright, sin red).
+- `PSG_SIM_XRAY=1 node tests/e2e.cjs ...` simula el modo content (no la seguridad real de Firefox).

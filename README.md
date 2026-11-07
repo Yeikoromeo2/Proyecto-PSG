@@ -92,10 +92,14 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.5.0 activo».
+   Al cargar verás el aviso «Ayudante PSG 0.6.0 activo».
 
-Si no aparece ese aviso: en Violentmonkey, abre el script y comprueba que el modo de
-inyección es **page** (el script ya lo pide con `@inject-into page`).
+Si Violentmonkey dice «No se pudieron inyectar algunos scripts», actualiza el script a la
+última versión (desde la 0.6.0 ya no pasa): el juego tiene una regla de seguridad (CSP) que
+bloquea los scripts metidos en la página y, en Firefox para Android, el gestor llega tarde. Desde
+la 0.6.0 el script lo detecta y se ejecuta en el espacio aislado del gestor; el aviso al entrar
+dice entonces «Ayudante PSG 0.6.0 activo (modo compatible)». En los ajustes del script en
+Violentmonkey, el modo de inyección debe ser **auto** (el que pide el script).
 
 También funciona en el ordenador (Chrome, Firefox, Edge) con Tampermonkey o Violentmonkey.
 

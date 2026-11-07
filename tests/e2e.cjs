@@ -40,11 +40,19 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   const page = await browser.newPage({ viewport: { width: 915, height: 412 }, deviceScaleFactor: SHOTS ? 2 : 1, hasTouch: true, locale: 'es-ES' });
   page.on('pageerror', e => console.log('  [error de la página]', e.message));
   await page.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());       // sin red: modo local
-  await page.addInitScript({ path: SCRIPT });
+  if (process.env.PSG_SIM_XRAY) {
+    // Simula el «modo content» de Firefox (Violentmonkey con la CSP del juego): unsafeWindow distinto de
+    // window y exportFunction/cloneInto presentes. No reproduce la seguridad real de las Xray, pero recorre
+    // el mismo camino del código (exportar funciones, copiar listas, devolver listas del juego).
+    const src = fs.readFileSync(SCRIPT, 'utf8');
+    await page.addInitScript(`window.__psgSimXray = true;
+      (function (window, unsafeWindow, exportFunction, cloneInto) {\n${src}\n})(new Proxy(window, {}), window, f => f, o => JSON.parse(JSON.stringify(o)));`);
+    console.log('  (simulando el modo content de Firefox)');
+  } else await page.addInitScript({ path: SCRIPT });
   await page.goto(url);
 
   await page.waitForFunction(() => window.__psgMod && window.__psgMod.version, null, { timeout: 30000 });
-  check(true, 'el ayudante se instala (' + await page.evaluate(() => window.__psgMod.version) + ')');
+  check(true, 'el ayudante se instala (' + await page.evaluate(() => window.__psgMod.version + ', modo ' + window.__psgMod.mode) + ')');
   // Pantalla «toca para empezar» (la pide el navegador para el sonido).
   await page.locator('#tap-start').click({ timeout: 3000 }).catch(() => {});
   await page.waitForFunction(() => { const t = document.getElementById('tap-start'); return !t || t.offsetParent === null; }, null, { timeout: 5000 })
