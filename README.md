@@ -111,6 +111,12 @@ versión sea la última (si no, vuelve a abrir el enlace del script y pulsa *Act
 El juego tiene una regla de seguridad (CSP) que bloquea los scripts metidos en la página y, en
 Firefox para Android, el gestor llega tarde: desde la 0.6.0 el script se ejecuta entonces en el
 espacio aislado del gestor y busca el juego por todas las vías que da Firefox.
+
+Además, la versión publicada del juego va **encerrada en una función** (es el anti-trampas del
+autor: `G` no existe desde fuera). Desde la 0.7.0 el script atrapa el objeto del juego en el
+momento en que se crea (la misma técnica que el «PokéSurvivor Mod» de la comunidad); por eso
+tiene que arrancar antes que el juego. Si la etiqueta roja dice «el script llegó tarde», recarga
+la página. Respeta la intención del autor: lo que se juegue con el modo libre no sube al ranking.
 En los ajustes del script en Violentmonkey, el modo de inyección debe ser **auto**.
 
 También funciona en el ordenador (Chrome, Firefox, Edge) con Tampermonkey o Violentmonkey.

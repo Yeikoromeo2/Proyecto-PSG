@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.6.2
+// @version      0.7.0
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -50,7 +50,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.2';
+  const VERSION = '0.7.0';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -62,6 +62,58 @@
   const CANDIDATES = [uw, wj, dv, xn, window].filter((w, i, l) => w && l.indexOf(w) === i);
   if (CANDIDATES.some(w => safe(() => w.__psgMod || w.__psgModVersion))) return;   // ya está puesto
   const HAS_XF = typeof exportFunction === 'function' && typeof cloneInto === 'function';
+  const READY_AT_START = safe(() => document.readyState) || '?';   // 'loading' = llegamos a tiempo
+
+  // ---------------- captura del juego (versión publicada) ----------------
+  // En la versión publicada el juego va ENCERRADO en una función (anti-trampas del autor): `G` no
+  // existe en window. El juego crea su objeto de módulos con Object.create(null) y lo primero que
+  // hace es ponerle BUILT = true. Mientras no lo tengamos, Object.create(null) da objetos con un
+  // prototipo «cebo» cuyo setter de BUILT nos entrega el objeto; después todo vuelve a ser como
+  // era (prototipo null y el Object.create original). Es la misma técnica que el «PokéSurvivor Mod»
+  // de la comunidad. Hay que ponerla ANTES de que corra el juego: por eso va aquí, al principio.
+  // En modo content (Firefox) se hace sobre la ventana de la página con exportFunction/cloneInto.
+  const PW = wj || dv || xn || (uw && uw !== window ? uw : null) || window;   // ventana de la página
+  const PX = PW !== window && HAS_XF;
+  let NS = null, trap = 'off';
+  (function setTrap() {
+    try {
+      const O = PW.Object, nativeCreate = O.create;
+      const fn = f => (PX ? exportFunction(f, PW) : f);
+      const desc = d => (PX ? cloneInto(d, PW, { cloneFunctions: true }) : d);
+      const un = o => (o && typeof o === 'object' && o.wrappedJSObject) || o;
+      const pending = [];
+      let armed = true;
+      const release = () => {
+        if (!armed) return;
+        armed = false;
+        if (O.create !== nativeCreate) O.create = nativeCreate;
+        for (const o of pending) { try { O.setPrototypeOf(o, null); } catch (e) { /* nada */ } }
+        pending.length = 0;
+      };
+      const bait = nativeCreate.call(O, null);
+      O.defineProperty(bait, 'BUILT', desc({
+        configurable: true,
+        get: function () { return undefined; },
+        set: function (v) {
+          const ns = un(this);
+          O.defineProperty(ns, 'BUILT', desc({ value: v, writable: true, configurable: true, enumerable: true }));
+          release();
+          if (!NS) { NS = ns; trap = 'cazado'; }
+        }
+      }));
+      O.create = fn(function create(proto, props) {
+        if (proto !== null || NS || !armed) return nativeCreate.call(O, proto, props);
+        const o = nativeCreate.call(O, bait, props);
+        pending.push(o);
+        return o;
+      });
+      window.addEventListener('load', () => { release(); if (!NS && trap === 'puesto') trap = 'sin cazar'; }, { once: true });
+      trap = 'puesto';
+    } catch (e) {
+      trap = 'error: ' + ((e && e.message) || e);
+    }
+  })();
+
   // Se fijan al encontrar el juego (ver «arranque»):
   //   W     su ventana · XRAY  modo content con las herramientas de Firefox
   //   MODE  'page' | 'content' | 'limitado' (aislado sin esas herramientas: sólo el analizador, que sólo lee)
@@ -233,11 +285,14 @@
 
   // ---------------- arranque ----------------
 
-  const gameReady = w => safe(() => {
-    const G = w.G;
-    return !!(G && G.LevelUp && typeof G.LevelUp.offer === 'function' && G.RunUI && typeof G.RunUI.showLevelUp === 'function'
-      && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI);
-  });
+  const gOk = G => !!safe(() => G && G.LevelUp && typeof G.LevelUp.offer === 'function' && G.RunUI
+    && typeof G.RunUI.showLevelUp === 'function' && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI);
+  /** { G, w }: el juego y su ventana — el cazado (versión publicada) o window.G (dev.html y versiones antiguas). */
+  function findGame() {
+    if (NS && gOk(NS)) return { G: NS, w: PW };
+    for (const w of CANDIDATES) { const G = safe(() => w.G); if (gOk(G)) return { G, w }; }
+    return null;
+  }
   // ---------------- indicador de estado ----------------
   // Sale arriba en el centro nada más cargar la página: si no lo ves, el gestor no está
   // ejecutando el script. Verde = funcionando (se oculta solo), rojo = no encuentra el juego.
@@ -269,14 +324,14 @@
   let tries = 0, warned = false;
   const boot = setInterval(() => {
     if (tries === 1) status('PSG ' + VERSION + ' · buscando el juego…', 'info');
-    const w = CANDIDATES.find(gameReady);
-    if (w) {
+    const found = findGame();
+    if (found) {
       clearInterval(boot);
-      W = w;
+      W = found.w;
       XRAY = W !== window && HAS_XF;
       MODE = W === window ? 'page' : XRAY ? 'content' : 'limitado';
       try {
-        install(W.G);
+        install(found.G);
         if (MODE === 'limitado') status('PSG ' + VERSION + ' ⚠ modo limitado: sólo el analizador [' + diag() + '] · toca para cerrar', 'warn');
         else status('PSG ' + VERSION + ' ✓ funcionando' + (XRAY ? ' (modo compatible)' : '') + ' · en el menú: ⭐ Analizador', 'ok', 9000);
       } catch (e) {
@@ -285,7 +340,8 @@
       }
     } else if (++tries === 60 && !warned) {    // ~15 s: se avisa, pero se sigue buscando un rato
       warned = true;
-      status('PSG ' + VERSION + ' ✗ no encuentro el juego [' + diag() + '] · sigo buscando · toca para cerrar', 'err');
+      status('PSG ' + VERSION + ' ✗ no encuentro el juego' + (READY_AT_START !== 'loading' ? ' (el script llegó tarde: recarga la página)' : '')
+        + ' [' + diag() + '] · sigo buscando · toca para cerrar', 'err');
     } else if (tries > 480) {                    // ~2 min
       clearInterval(boot);
     }
@@ -294,7 +350,8 @@
   /** Qué ve el script (para el indicador): así una captura basta para saber qué pasa. */
   function diag() {
     const seesG = w => (safe(() => !!w.G) ? 'G' : '-');
-    return 'uw:' + (uw ? (uw === window ? '=w' : 'sí') + seesG(uw) : 'no') + ' wj:' + (wj ? 'sí' + seesG(wj) : 'no')
+    return 'trampa:' + trap + ' ns:' + (NS ? (gOk(NS) ? 'ok' : 'a medias') : 'no') + ' inicio:' + READY_AT_START
+      + ' uw:' + (uw ? (uw === window ? '=w' : 'sí') + seesG(uw) : 'no') + ' wj:' + (wj ? 'sí' + seesG(wj) : 'no')
       + ' dv:' + (dv ? 'sí' + seesG(dv) : 'no') + ' xn:' + (xn ? 'sí' + seesG(xn) : 'no') + ' w:' + seesG(window)
       + ' xf:' + (HAS_XF ? 'sí' : 'no');
   }
@@ -757,6 +814,7 @@
     // puede leer objetos nuestros: sólo se deja una marca con la versión.
     const mod = { version: VERSION, mode: MODE, cfg };
     if (W !== window && !W.__psgSimXray) W.__psgModVersion = VERSION; else W.__psgMod = mod;   // (__psgSimXray: tests/e2e.cjs)
+    if (W.__psgTest && !safe(() => W.G)) W.G = G;     // sólo para tests/e2e.cjs (el juego publicado no tiene window.G)
 
     const origOffer = G.LevelUp.offer;
     const origShow = G.RunUI.showLevelUp;

@@ -40,6 +40,8 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   const page = await browser.newPage({ viewport: { width: 915, height: 412 }, deviceScaleFactor: SHOTS ? 2 : 1, hasTouch: true, locale: 'es-ES' });
   page.on('pageerror', e => console.log('  [error de la página]', e.message));
   await page.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());       // sin red: modo local
+  // Con el juego «encerrado» (como el publicado) no hay window.G: el script lo deja en window.G sólo para las pruebas.
+  await page.addInitScript(() => { window.__psgTest = true; });
   if (process.env.PSG_SIM_XRAY) {
     // Simula el «modo content» de Firefox (Violentmonkey con la CSP del juego): unsafeWindow distinto de
     // window y exportFunction/cloneInto presentes. No reproduce la seguridad real de las Xray, pero recorre
@@ -56,7 +58,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
           if (k === 'G' || k === '__psgMod' || k === '__psgModVersion') return undefined;   // la ventana aislada no ve lo del juego
           if (k === 'wrappedJSObject') return ${v2 ? 't' : 'undefined'};
           const v = Reflect.get(t, k, t); return typeof v === 'function' ? v.bind(t) : v; } });
-        (function (window, unsafeWindow, exportFunction, cloneInto) {\n${src}\n})(isolated, ${v2 ? 'isolated' : 'real'}, f => f, o => JSON.parse(JSON.stringify(o)));
+        (function (window, unsafeWindow, exportFunction, cloneInto) {\n${src}\n})(isolated, ${v2 ? 'isolated' : 'real'}, f => f, (o, t, opt) => (opt && opt.cloneFunctions ? o : JSON.parse(JSON.stringify(o))));
       })();`);
     console.log('  (simulando el modo content de Firefox, variante ' + (v2 ? 2 : 1) + ')');
   } else await page.addInitScript({ path: SCRIPT });
