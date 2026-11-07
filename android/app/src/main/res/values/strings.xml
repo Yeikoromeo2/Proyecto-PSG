@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PokéSurvivor PSG</string>
-    <string name="google_title">Inicio con Google</string>
-    <string name="google_text">Google no deja iniciar sesión con su botón dentro de una app. Entra con tu nombre y contraseña del juego, o abre el juego en el navegador para entrar con Google.</string>
-    <string name="google_browser">Abrir en el navegador</string>
-    <string name="close">Cerrar</string>
+    <string name="google_title">Iniciar con Google</string>
+    <string name="google_text">Google no permite usar su botón de inicio de sesión dentro de una ventana integrada (es una regla de seguridad de Google, no del juego).\n\nPuedes jugar con tu cuenta de Google en el modo Google de la app: el juego se abre con Chrome aquí mismo, el inicio con Google funciona y la sesión se queda guardada.\n\nEn ese modo no está el ayudante PSG.</string>
+    <string name="google_use">Jugar con Google</string>
+    <string name="close">Cancelar</string>
+    <string name="google_mode_info">Modo Google: el juego se abre con Chrome dentro de la app y tu sesión de Google se queda guardada.\n\nEn este modo no está el ayudante PSG. Para usarlo: modo ayudante (entrar con nombre y contraseña) o Firefox con Violentmonkey.</string>
+    <string name="google_play">▶ Jugar</string>
+    <string name="google_switch">Cambiar a modo ayudante</string>
 </resources>

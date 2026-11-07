@@ -85,6 +85,9 @@ La forma más cómoda y rápida en Android: la app **PokéSurvivor PSG** abre la
 con el motor de Chrome del sistema y el ayudante ya dentro (sin Firefox ni gestores de scripts).
 Descarga: <https://github.com/Yeikoromeo2/Proyecto-PSG/releases/download/app-latest/PokeSurvivor-PSG.apk>
 · instrucciones en [`android/README.md`](android/README.md).
+Con **nombre y contraseña** se juega con el ayudante. Con una **cuenta de Google**, la app tiene un
+«modo Google» que abre el juego con Chrome dentro de la app (Google funciona y la sesión se guarda),
+pero sin el ayudante: Google no permite su inicio de sesión dentro de ventanas integradas.
 
 > El ayudante no le quita rendimiento al juego: medido con el código publicado y la CPU frenada
 > como en un móvil, el juego va igual con y sin él (59,6 fotogramas por segundo en ambos casos).

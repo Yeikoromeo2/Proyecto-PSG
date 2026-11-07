@@ -30,8 +30,11 @@
   (hurt/update/heal/gainXp) y límites de stats: no tocar nada de eso.
 
 ## App Android (`android/`)
-- WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar; el botón de Google
-  no funciona dentro de apps y se avisa) e inyecta el userscript con `addDocumentStartJavaScript`.
+- WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar) e inyecta el
+  userscript con `addDocumentStartJavaScript` («modo ayudante», con nombre y contraseña).
+- «Modo Google»: Google bloquea su login en WebViews; al tocarlo se ofrece abrir el juego en una
+  Custom Tab (Chrome dentro de la app), donde funciona y la sesión se guarda, pero sin ayudante.
+  NO falsear el user agent ni usar el OAuth client del juego para saltarse esa regla.
 - El userscript se copia al APK al compilar (no hay segunda copia). Cualquier cambio en el
   userscript o en `android/` lanza `.github/workflows/android.yml`, que publica el APK en la
   versión `app-latest`.

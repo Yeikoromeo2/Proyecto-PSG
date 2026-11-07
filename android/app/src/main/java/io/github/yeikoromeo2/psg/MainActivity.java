@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -12,6 +13,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.DisplayCutout;
+import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -22,7 +24,13 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.browser.customtabs.CustomTabColorSchemeParams;
+import androidx.browser.customtabs.CustomTabsIntent;
 
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -43,21 +51,43 @@ import java.util.Set;
  * encendida, prioridad alta para el motor del juego y el ayudante (assets/pokesurvivor-ayudante.user.js),
  * que se mete al empezar a cargar cada página del juego, antes que el propio juego, como hace
  * Violentmonkey con «document-start».
+ *
+ * Dos modos (se recuerda el último):
+ *   - ayudante: el juego en una WebView con el ayudante. El botón de Google del juego no funciona
+ *     aquí (Google no permite su inicio de sesión dentro de ventanas integradas).
+ *   - Google: el juego se abre con Chrome dentro de la app (Custom Tab), donde Google sí funciona
+ *     y la sesión se queda guardada en Chrome. En este modo no se puede meter el ayudante.
  */
 public class MainActivity extends Activity {
 
     private static final String HOME = "https://pokesurvivor.com/";
     private static final String HELPER = "pokesurvivor-ayudante.user.js";
 
+    private static final String PREFS = "psg", KEY_MODE = "mode", MODE_HELPER = "ayudante", MODE_GOOGLE = "google";
+
     private WebView web;
     private String helperJs = "";
     private boolean helperAtStart = false;
+    private SharedPreferences prefs;
 
-    @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (MODE_GOOGLE.equals(prefs.getString(KEY_MODE, MODE_HELPER))) {
+            showGoogleScreen();
+            if (state == null) openGoogleTab();              // al abrir la app, directo al juego
+        } else {
+            startHelperMode();
+        }
+        immersive();
+    }
+
+    // ---------------------------------------------------------------- modo ayudante (WebView)
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void startHelperMode() {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
@@ -127,7 +157,85 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient());
 
         web.loadUrl(HOME);
+    }
+
+    // ---------------------------------------------------------------- modo Google (Chrome en la app)
+
+    /** Pantalla de la app en modo Google: se ve al cerrar el juego (botón «atrás» o la ✕ de arriba). */
+    private void showGoogleScreen() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackgroundColor(Color.rgb(0x10, 0x18, 0x30));
+        int pad = dp(24);
+        box.setPadding(pad, pad, pad, pad);
+        box.addView(label(getString(R.string.app_name), 26, true));
+        box.addView(label(getString(R.string.google_mode_info), 15, false));
+        box.addView(button(getString(R.string.google_play), v -> openGoogleTab()));
+        box.addView(button(getString(R.string.google_switch), v -> switchToHelper()));
+        setContentView(box);
+        box.setOnApplyWindowInsetsListener(this::applyInsets);
+    }
+
+    /** El juego con Chrome dentro de la app: ahí el inicio con Google funciona y la sesión se guarda. */
+    private void openGoogleTab() {
+        CustomTabColorSchemeParams colors = new CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(Color.rgb(0x10, 0x18, 0x30))
+                .build();
+        CustomTabsIntent tab = new CustomTabsIntent.Builder()
+                .setDefaultColorSchemeParams(colors)
+                .setShowTitle(false)
+                .setUrlBarHidingEnabled(true)
+                .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
+                .build();
+        try {
+            tab.launchUrl(this, Uri.parse(HOME));
+        } catch (ActivityNotFoundException e) {
+            openOutside(Uri.parse(HOME));
+        }
+    }
+
+    private void switchToGoogle() {
+        prefs.edit().putString(KEY_MODE, MODE_GOOGLE).apply();
+        if (web != null) {
+            web.destroy();
+            web = null;
+        }
+        showGoogleScreen();
+        openGoogleTab();
+    }
+
+    private void switchToHelper() {
+        prefs.edit().putString(KEY_MODE, MODE_HELPER).apply();
+        startHelperMode();
         immersive();
+    }
+
+    private TextView label(String text, int sp, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(sp);
+        t.setTextColor(Color.WHITE);
+        t.setGravity(Gravity.CENTER);
+        if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        t.setPadding(0, 0, 0, dp(16));
+        return t;
+    }
+
+    private Button button(String text, View.OnClickListener onClick) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setOnClickListener(onClick);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     // ---------------------------------------------------------------- navegación
@@ -145,11 +253,12 @@ public class MainActivity extends Activity {
         return "accounts.google.com".equals(h) || (h.endsWith(".firebaseapp.com") && p.startsWith("/__/auth/"));
     }
 
+    /** Se ha tocado «Iniciar con Google» en el modo ayudante: se ofrece el modo Google. */
     private void googleLoginNotice() {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.google_title)
                 .setMessage(R.string.google_text)
-                .setPositiveButton(R.string.google_browser, (d, w) -> openOutside(Uri.parse(HOME)))
+                .setPositiveButton(R.string.google_use, (d, w) -> switchToGoogle())
                 .setNegativeButton(R.string.close, null)
                 .show();
     }
