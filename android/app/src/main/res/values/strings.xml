@@ -9,4 +9,5 @@
     <string name="google_mode_info">Modo Google: el juego se abre con Chrome dentro de la app y tu sesión de Google se queda guardada.\n\nEn este modo no está el ayudante PSG. Para usarlo: modo ayudante (entrar con nombre y contraseña) o Firefox con Violentmonkey.</string>
     <string name="google_play">▶ Jugar</string>
     <string name="google_switch">Cambiar a modo ayudante</string>
+    <string name="helper_updated">Ayudante PSG %1$s descargado: se usará al volver a abrir la app.</string>
 </resources>

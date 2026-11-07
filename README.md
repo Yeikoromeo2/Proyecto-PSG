@@ -98,6 +98,14 @@ pero sin el ayudante: Google no permite su inicio de sesión dentro de ventanas 
 > como en un móvil, el juego va igual con y sin él (59,6 fotogramas por segundo en ambos casos).
 > Si notas el juego lento en Firefox, es el navegador: la app usa el motor de Chrome.
 
+### ¿Se actualiza solo?
+
+- **Firefox / Tampermonkey:** sí. El script lleva `@updateURL`, así que el gestor busca versiones
+  nuevas por su cuenta (también puedes forzarlo con «Buscar actualizaciones» en Violentmonkey).
+- **App Android:** el **ayudante** sí: la app descarga la versión nueva en segundo plano y la usa al
+  volver a abrirla. La **app en sí** no: sólo hay que reinstalar el APK cuando cambie la app
+  (pantallas, modos, permisos), no cuando cambie el ayudante.
+
 ## Instalación en Android con Firefox
 
 **Chrome para Android no puede ejecutar este script**: no admite extensiones y la

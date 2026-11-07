@@ -28,6 +28,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.browser.customtabs.CustomTabColorSchemeParams;
 import androidx.browser.customtabs.CustomTabsIntent;
@@ -36,11 +37,19 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.net.ssl.HttpsURLConnection;
 
 /**
  * Ventana para jugar a PokéSurvivor con el motor de Chrome del sistema (Android System WebView)
@@ -62,6 +71,11 @@ public class MainActivity extends Activity {
 
     private static final String HOME = "https://pokesurvivor.com/";
     private static final String HELPER = "pokesurvivor-ayudante.user.js";
+    /** El ayudante se actualiza solo desde aquí (la copia del APK es el respaldo). */
+    private static final String HELPER_URL =
+            "https://raw.githubusercontent.com/Yeikoromeo2/Proyecto-PSG/ccr-75475d84-q4ixxt/pokesurvivor-ayudante.user.js";
+    private static final String HELPER_CACHE = "ayudante-descargado.user.js";
+    private static final int HELPER_MAX = 4 * 1024 * 1024;
 
     private static final String PREFS = "psg", KEY_MODE = "mode", MODE_HELPER = "ayudante", MODE_GOOGLE = "google";
 
@@ -124,7 +138,10 @@ public class MainActivity extends Activity {
         web.setLongClickable(false);
         web.setHapticFeedbackEnabled(false);
 
-        helperJs = readAsset(HELPER);
+        // Se usa el más nuevo entre el del APK y el que se haya descargado antes; en segundo plano
+        // se mira si hay uno más nuevo todavía (se guarda y se usa la próxima vez que abras la app).
+        helperJs = bestHelper();
+        checkHelperUpdate(helperJs);
         if (!helperJs.isEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             Set<String> origins = new HashSet<>();
             origins.add("https://pokesurvivor.com");
@@ -376,6 +393,97 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- utilidades
+
+    // ---------------------------------------------------------------- ayudante al día
+
+    /** El ayudante más nuevo: el descargado si supera al que trae el APK. */
+    private String bestHelper() {
+        String bundled = readAsset(HELPER);
+        String cached = readCache();
+        return (cached != null && newer(cached, bundled)) ? cached : bundled;
+    }
+
+    private File cacheFile() {
+        return new File(getFilesDir(), HELPER_CACHE);
+    }
+
+    private String readCache() {
+        File f = cacheFile();
+        if (!f.isFile() || f.length() == 0 || f.length() > HELPER_MAX) return null;
+        try (InputStream in = new FileInputStream(f)) {
+            String js = readStream(in);
+            return looksLikeHelper(js) ? js : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** Sólo se acepta nuestro propio ayudante (y nada enorme). */
+    private static boolean looksLikeHelper(String js) {
+        return js != null && js.length() > 1000 && js.length() <= HELPER_MAX
+                && js.startsWith("// ==UserScript==")
+                && js.contains("github.com/yeikoromeo2/proyecto-psg");
+    }
+
+    private static final Pattern VER = Pattern.compile("@version\\s+([0-9]+(?:\\.[0-9]+)*)");
+
+    private static String verStr(String js) {
+        Matcher m = VER.matcher(js == null ? "" : js);
+        return m.find() ? m.group(1) : "0";
+    }
+
+    /** ¿`a` tiene una versión mayor que `b`? (1.10 es mayor que 1.9). */
+    private static boolean newer(String a, String b) {
+        String[] x = verStr(a).split("\\."), y = verStr(b).split("\\.");
+        for (int i = 0; i < Math.max(x.length, y.length); i++) {
+            int nx = i < x.length ? num(x[i]) : 0, ny = i < y.length ? num(y[i]) : 0;
+            if (nx != ny) return nx > ny;
+        }
+        return false;
+    }
+
+    private static int num(String s) {
+        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return 0; }
+    }
+
+    /** Busca una versión más nueva del ayudante. Si la hay, la guarda para el próximo arranque. */
+    private void checkHelperUpdate(final String current) {
+        new Thread(() -> {
+            HttpsURLConnection c = null;
+            try {
+                c = (HttpsURLConnection) new URL(HELPER_URL).openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(20000);
+                c.setInstanceFollowRedirects(true);
+                if (c.getResponseCode() != 200) return;
+                String js = readStream(c.getInputStream());
+                if (!looksLikeHelper(js) || !newer(js, current)) return;
+                try (FileOutputStream out = new FileOutputStream(cacheFile())) {
+                    out.write(js.getBytes(StandardCharsets.UTF_8));
+                }
+                final String v = verStr(js);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    Toast.makeText(this, getString(R.string.helper_updated, v), Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception e) {
+                // sin internet o GitHub no responde: se sigue con el que ya hay
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    private static String readStream(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[16384];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            out.write(buf, 0, n);
+            if (out.size() > HELPER_MAX) break;
+        }
+        return out.toString(StandardCharsets.UTF_8.name());
+    }
 
     private String readAsset(String name) {
         try (InputStream in = getAssets().open(name)) {

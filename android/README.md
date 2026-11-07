@@ -21,7 +21,11 @@ Una **ventana** para jugar a [PokéSurvivor](https://pokesurvivor.com) en Androi
    apps instaladas a mano. Elige *Instalar de todas formas*.
 4. Abre **PokéSurvivor PSG** y entra con tu cuenta como siempre.
 
-**Actualizar:** descarga el APK de nuevo e instálalo encima (si la versión dice «firma fija»; si
+**El ayudante se actualiza solo.** Al abrir la app, busca en segundo plano una versión más nueva
+del ayudante; si la hay, la guarda y la usa **la próxima vez que abras la app** (te lo dice con un
+aviso). Sólo hay que reinstalar el APK cuando cambia la app en sí, no el ayudante.
+
+**Actualizar la app:** descarga el APK de nuevo e instálalo encima (si la versión dice «firma fija»; si
 dice «firma temporal», desinstala antes la anterior y vuelve a entrar con tu cuenta: la partida está
 en la nube). Ver «Firma» más abajo.
 

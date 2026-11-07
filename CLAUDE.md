@@ -43,7 +43,9 @@
 - «Modo Google»: Google bloquea su login en WebViews; al tocarlo se ofrece abrir el juego en una
   Custom Tab (Chrome dentro de la app), donde funciona y la sesión se guarda, pero sin ayudante.
   NO falsear el user agent ni usar el OAuth client del juego para saltarse esa regla.
-- El userscript se copia al APK al compilar (no hay segunda copia). Cualquier cambio en el
+- El userscript se copia al APK al compilar (no hay segunda copia) y, además, la app lo actualiza
+  sola: al arrancar usa el más nuevo entre el del APK y el descargado, y en segundo plano baja el de
+  `HELPER_URL` (se valida: cabecera de userscript + namespace del proyecto) para el siguiente arranque. Cualquier cambio en el
   userscript o en `android/` lanza `.github/workflows/android.yml`, que publica el APK en la
   versión `app-latest`.
 - La llave de firma NUNCA va en el repositorio (es público): Actions la lee de los Secrets
