@@ -44,9 +44,30 @@ Para que una app reciba el inicio de sesión de Google, el autor del juego tendr
 en su proyecto de Google. Hacerse pasar por un navegador para saltarse la regla de Google no es una
 opción: es lo que hacen las apps de robo de cuentas y Google puede bloquear la cuenta.
 
-**Google + ayudante a la vez:** un navegador que acepte extensiones y tenga Tampermonkey o
-Violentmonkey. Comprobado: Firefox para Android. Sin comprobar (basados en Chrome, por eso
-quizá más rápidos): Quetta o Lemur con Tampermonkey. La etiqueta verde «PSG ✓ funcionando» dice si va.
+Al tocar «Iniciar con Google» en el modo ayudante, la app ofrece **Abrir en Firefox** (Google
+y ayudante, con Violentmonkey) o el **modo Google**. En ningún caso hace falta una cuenta nueva.
+
+### Google + ayudante a la vez: navegador con extensiones
+
+Cualquier navegador de verdad (no una app con ventana integrada) deja entrar con Google. Si además
+acepta un gestor de scripts, tienes el ayudante. La etiqueta verde «PSG ✓ funcionando» lo confirma.
+
+| Navegador | Gestor | Estado |
+|---|---|---|
+| Firefox para Android | Violentmonkey o Tampermonkey | Comprobado (más lento que Chrome) |
+| Microsoft Edge para Android | Tampermonkey (si aparece en su lista de extensiones) | Sin comprobar |
+| Lemur Browser – Extensions | Tampermonkey (tienda de Chrome integrada) | Sin comprobar |
+| Quetta | ScriptCat | Sin comprobar |
+
+Pasos con un navegador basado en Chrome (Edge, Lemur):
+1. Instálalo desde Google Play y abre su menú de **Extensiones**.
+2. Instala **Tampermonkey**.
+3. En los ajustes de la extensión, activa **«Permitir scripts de usuario»** («Allow User Scripts»)
+   o el **modo desarrollador** si aparece (Tampermonkey lo pide en los navegadores basados en
+   Chrome recientes); si no hace efecto, cierra y vuelve a abrir el navegador.
+4. Abre el enlace del script y pulsa **Instalar**:
+   <https://raw.githubusercontent.com/Yeikoromeo2/Proyecto-PSG/ccr-75475d84-q4ixxt/pokesurvivor-ayudante.user.js>
+5. Entra en <https://pokesurvivor.com>, inicia sesión con Google y mira la etiqueta PSG de arriba.
 
 ## Cómo está hecha
 

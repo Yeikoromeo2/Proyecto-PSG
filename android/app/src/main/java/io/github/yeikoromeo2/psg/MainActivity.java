@@ -172,6 +172,7 @@ public class MainActivity extends Activity {
         box.addView(label(getString(R.string.app_name), 26, true));
         box.addView(label(getString(R.string.google_mode_info), 15, false));
         box.addView(button(getString(R.string.google_play), v -> openGoogleTab()));
+        box.addView(button(getString(R.string.firefox_open), v -> openInFirefox()));
         box.addView(button(getString(R.string.google_switch), v -> switchToHelper()));
         setContentView(box);
         box.setOnApplyWindowInsetsListener(this::applyInsets);
@@ -253,14 +254,36 @@ public class MainActivity extends Activity {
         return "accounts.google.com".equals(h) || (h.endsWith(".firebaseapp.com") && p.startsWith("/__/auth/"));
     }
 
-    /** Se ha tocado «Iniciar con Google» en el modo ayudante: se ofrece el modo Google. */
+    /**
+     * Se ha tocado «Iniciar con Google» en el modo ayudante. Google no deja entrar aquí; se ofrece:
+     * abrir el juego en Firefox (Google + ayudante con Violentmonkey) o el modo Google (sin ayudante).
+     */
     private void googleLoginNotice() {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.google_title)
                 .setMessage(R.string.google_text)
-                .setPositiveButton(R.string.google_use, (d, w) -> switchToGoogle())
+                .setPositiveButton(R.string.firefox_open, (d, w) -> openInFirefox())
+                .setNeutralButton(R.string.google_use, (d, w) -> switchToGoogle())
                 .setNegativeButton(R.string.close, null)
                 .show();
+    }
+
+    /** Firefox para Android (normal, beta o nightly); si no está, su página en la Play Store. */
+    private void openInFirefox() {
+        String[] firefox = {"org.mozilla.firefox", "org.mozilla.firefox_beta", "org.mozilla.fenix"};
+        for (String pkg : firefox) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(HOME)).setPackage(pkg));
+                return;
+            } catch (ActivityNotFoundException e) {
+                // no está instalado: se prueba el siguiente
+            }
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=org.mozilla.firefox")));
+        } catch (ActivityNotFoundException e) {
+            openOutside(Uri.parse("https://play.google.com/store/apps/details?id=org.mozilla.firefox"));
+        }
     }
 
     private void openOutside(Uri u) {
