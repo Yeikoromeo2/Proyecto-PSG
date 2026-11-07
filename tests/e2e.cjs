@@ -88,6 +88,16 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
 
   // 0) Analizador de colección.
   check(await page.evaluate(() => !!document.getElementById('psg-an-btn')), 'botón «Analizador PSG» en el menú principal');
+  const migBtn = await page.evaluate(() => {
+    const b = document.getElementById('psg-mig-btn');
+    if (!b) return 'sin botón';
+    b.click();
+    const an = document.getElementById('psg-an'), d = document.querySelector('#psg-an .psg-mig');
+    const ok = an && !an.classList.contains('psg-hidden') && d && d.open;
+    window.__psgMod.analyzer.close();
+    return ok ? 'ok' : 'no se abrió';
+  });
+  check(migBtn === 'ok', 'botón «⇄ Copia de partida» en el menú: abre la copia de seguridad desplegada (' + migBtn + ')');
   await page.evaluate(() => window.__psgMod.analyzer.open());
   const an = await page.evaluate(() => ({
     rows: document.querySelectorAll('#psg-an .psg-row').length,

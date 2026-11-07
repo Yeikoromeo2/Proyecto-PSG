@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.1
+// @version      0.9.2
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -54,7 +54,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.1';
+  const VERSION = '0.9.2';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -380,7 +380,7 @@
       try {
         install(found.G);
         if (MODE === 'limitado') status('PSG ' + VERSION + ' ⚠ modo limitado: sólo el analizador [' + diag() + '] · toca para cerrar', 'warn');
-        else status('PSG ' + VERSION + ' ✓ funcionando' + (XRAY ? ' (modo compatible)' : '') + ' · en el menú: ⭐ Analizador', 'ok', 9000);
+        else status('PSG ' + VERSION + ' ✓ funcionando' + (XRAY ? ' (modo compatible)' : '') + ' · en el menú: ⭐ Analizador y ⇄ Copia de partida', 'ok', 9000);
       } catch (e) {
         console.error('[PSG] no se pudo instalar', e);
         status('PSG ' + VERSION + ' ✗ error al instalar: ' + ((e && e.message) || e) + ' [' + diag() + '] · toca para cerrar', 'err');
@@ -632,7 +632,24 @@
       const after = list.querySelector('[data-go="dex"]');
       list.insertBefore(b, after ? after.nextSibling : null);
       b.addEventListener('click', open);
+      // Segundo botón, a la vista: abre directamente la copia de seguridad / mover de cuenta.
+      const m = document.createElement('button');
+      m.id = 'psg-mig-btn';
+      m.className = 'menu-item';
+      m.setAttribute('translate', 'no');
+      m.innerHTML = '<span class="mi-ico"><span style="font-size:22px;line-height:26px">⇄</span></span>'
+        + 'Copia de partida<small>PSG · exportar e importar tu progreso</small>';
+      list.insertBefore(m, b.nextSibling);
+      m.addEventListener('click', openMigration);
       return true;
+    }
+    /** Abre el Analizador con la copia de seguridad desplegada y a la vista. */
+    function openMigration() {
+      open();
+      const d = el && el.querySelector('.psg-mig');
+      if (!d) return;
+      d.open = true;
+      try { d.scrollIntoView({ block: 'start' }); } catch (e) { /* nada */ }
     }
     if (!addMenuButton()) { const t = setInterval(() => { if (addMenuButton()) clearInterval(t); }, 1000); }
 
@@ -762,6 +779,7 @@
       el.innerHTML = `
         <div class="psg-an-head">
           <b>Analizador de colección</b><span class="psg-an-count"></span>
+          <button type="button" class="psg-an-mig" title="Exportar o importar tu partida">⇄ Copia</button>
           <button type="button" class="psg-an-x" aria-label="Cerrar">✕</button>
         </div>
         <div class="psg-an-ctl">
@@ -794,6 +812,11 @@
         <div class="psg-an-list"></div>`;
       document.body.appendChild(el);
       el.querySelector('.psg-an-x').addEventListener('click', close);
+      el.querySelector('.psg-an-mig').addEventListener('click', () => {
+        const d = el.querySelector('.psg-mig');
+        d.open = true;
+        try { d.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* nada */ }
+      });
       el.querySelector('input').addEventListener('input', e => { query = fold(e.target.value); paint(); });
       el.querySelector('select').addEventListener('change', e => { sortBy = e.target.value; paint(); });
       el.querySelector('.psg-an-list').addEventListener('toggle', e => {
@@ -961,7 +984,9 @@
       #psg-an input,#psg-an select{font-family:inherit;font-size:14px;padding:7px 9px;border-radius:8px;border:1px solid #ffffff33;background:#0b1328;color:#fff}
       #psg-an input{flex:1;min-width:150px}
       #psg-an .psg-an-help{color:#9fb1c9;font-size:12px;margin:4px 0 10px}
-      #psg-an .psg-mig{margin:0 0 10px;background:#ffffff0a;border-radius:10px;padding:6px 10px}
+      #psg-an .psg-an-mig{font-family:inherit;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;
+        border:1px solid #ffd23f;background:#ffd23f;color:#2a2000;cursor:pointer}
+      #psg-an .psg-mig{scroll-margin-top:56px;margin:0 0 10px;background:#ffffff0a;border-radius:10px;padding:6px 10px}
       #psg-an .psg-mig>summary{cursor:pointer;color:#ffd23f;font-weight:600}
       #psg-an .psg-mig p{font-size:12px;color:#cfd8ea;margin:6px 0}
       #psg-an .psg-mig textarea{width:100%;box-sizing:border-box;min-height:54px;margin:4px 0;border-radius:8px;
