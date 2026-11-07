@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Estrella (la del botón «⭐ Analizador») sobre fondo azul. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFD23F"
+        android:strokeColor="#2A2000"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M54.00,28.00 L60.47,46.10 L79.68,46.66 L64.46,58.40 L69.87,76.84 L54.00,66.00 L38.13,76.84 L43.54,58.40 L28.32,46.66 L47.53,46.10 Z" />
+</vector>

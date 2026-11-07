@@ -79,7 +79,18 @@ El juego ya lo trae: **Ajustes → Controles → Colocar los botones**, y arriba
 
 En la misma pestaña puedes ponerlo *Pequeño / Normal / Grande*.
 
-## Instalación en Android
+## App Android (recomendada en el móvil)
+
+La forma más cómoda y rápida en Android: la app **PokéSurvivor PSG** abre la web oficial del juego
+con el motor de Chrome del sistema y el ayudante ya dentro (sin Firefox ni gestores de scripts).
+Descarga: <https://github.com/Yeikoromeo2/Proyecto-PSG/releases/download/app-latest/PokeSurvivor-PSG.apk>
+· instrucciones en [`android/README.md`](android/README.md).
+
+> El ayudante no le quita rendimiento al juego: medido con el código publicado y la CPU frenada
+> como en un móvil, el juego va igual con y sin él (59,6 fotogramas por segundo en ambos casos).
+> Si notas el juego lento en Firefox, es el navegador: la app usa el motor de Chrome.
+
+## Instalación en Android con Firefox
 
 **Chrome para Android no puede ejecutar este script**: no admite extensiones y la
 página del juego bloquea los «marcadores con JavaScript» (su política de seguridad,

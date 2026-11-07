@@ -1,0 +1,76 @@
+plugins {
+    id 'com.android.application'
+}
+
+// El ayudante va dentro del APK (en assets/): es el mismo userscript de la raíz del repositorio,
+// copiado al configurar el proyecto (así no hay dos copias que mantener).
+def helper = rootProject.file('../pokesurvivor-ayudante.user.js')
+if (!helper.exists()) throw new GradleException('No encuentro el ayudante: ' + helper)
+def helperDir = layout.buildDirectory.dir('psg-assets').get().asFile
+helperDir.mkdirs()
+copy { from helper; into helperDir }
+def versionMatch = (helper.getText('UTF-8') =~ /@version\s+(\S+)/)
+def helperVersion = versionMatch.find() ? versionMatch.group(1) : '0'
+// En GitHub Actions cada compilación sube el número de versión (para poder actualizar encima).
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int
+
+android {
+    namespace 'io.github.yeikoromeo2.psg'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'io.github.yeikoromeo2.psg'
+        minSdk 26
+        targetSdk 35
+        versionCode buildNumber
+        versionName "${helperVersion}-app${buildNumber}"
+    }
+
+    // Firma: la llave NUNCA va en el repositorio. Se pasa por variables de entorno (en GitHub
+    // Actions salen de los Secrets del repositorio, ver android/README.md):
+    //   PSG_KEYSTORE           ruta del archivo .keystore
+    //   PSG_KEYSTORE_PASSWORD  su contraseña (también la de la llave, si no se da PSG_KEY_PASSWORD)
+    //   PSG_KEY_ALIAS          alias de la llave (por defecto «psg»)
+    // Con la misma llave, cada APK nuevo se instala encima del anterior. Sin ella, se firma con la
+    // llave de depuración de la máquina que compila (sirve para probar, pero no para actualizar encima).
+    def ksPath = System.getenv('PSG_KEYSTORE')
+    def ksPass = System.getenv('PSG_KEYSTORE_PASSWORD')
+    def hasKey = ksPath && ksPass && file(ksPath).exists()
+    signingConfigs {
+        if (hasKey) {
+            psg {
+                storeFile file(ksPath)
+                storePassword ksPass
+                keyAlias System.getenv('PSG_KEY_ALIAS') ?: 'psg'
+                keyPassword System.getenv('PSG_KEY_PASSWORD') ?: ksPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig hasKey ? signingConfigs.psg : signingConfigs.debug
+        }
+    }
+
+    sourceSets {
+        main { assets.srcDir helperDir }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // `./gradlew lintRelease` (lo pasa GitHub Actions) falla si hay errores, p. ej. llamadas que no
+    // existen en las versiones antiguas de Android que admite la app (minSdk 26 = Android 8).
+    lint {
+        checkReleaseBuilds false
+        abortOnError true
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+}

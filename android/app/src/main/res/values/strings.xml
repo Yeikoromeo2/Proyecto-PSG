@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PokéSurvivor PSG</string>
+    <string name="google_title">Inicio con Google</string>
+    <string name="google_text">Google no deja iniciar sesión con su botón dentro de una app. Entra con tu nombre y contraseña del juego, o abre el juego en el navegador para entrar con Google.</string>
+    <string name="google_browser">Abrir en el navegador</string>
+    <string name="close">Cerrar</string>
+</resources>

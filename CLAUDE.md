@@ -29,6 +29,19 @@
 - El anti-trampas del juego (`clean()`) sólo mira el reloj, propiedades propias del jugador
   (hurt/update/heal/gainXp) y límites de stats: no tocar nada de eso.
 
+## App Android (`android/`)
+- WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar; el botón de Google
+  no funciona dentro de apps y se avisa) e inyecta el userscript con `addDocumentStartJavaScript`.
+- El userscript se copia al APK al compilar (no hay segunda copia). Cualquier cambio en el
+  userscript o en `android/` lanza `.github/workflows/android.yml`, que publica el APK en la
+  versión `app-latest`.
+- La llave de firma NUNCA va en el repositorio (es público): Actions la lee de los Secrets
+  `PSG_KEYSTORE_B64` y `PSG_KEYSTORE_PASSWORD`; a mano, variables `PSG_KEYSTORE` y `PSG_KEYSTORE_PASSWORD`.
+- Compilar aquí: `ANDROID_HOME=$HOME/android-sdk ./gradlew lintRelease assembleRelease` (el SDK se
+  instala con cmdline-tools desde dl.google.com; plataforma 35, build-tools 35.0.0). Lint falla si
+  hay llamadas que no existen en Android 8 (minSdk 26): proteger con `Build.VERSION.SDK_INT`.
+- No hay emulador aquí (sin KVM): la app no se puede probar en ejecución en esta sesión.
+
 ## Pruebas
 - `node tests/e2e.cjs /ruta/a/copia/de/pokesurvivor` (Playwright, sin red).
 - `PSG_SIM_XRAY=1|2 node tests/e2e.cjs ...` simula el modo content (no la seguridad real de Firefox).
