@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.6.1
+// @version      0.6.2
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -50,7 +50,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.1';
+  const VERSION = '0.6.2';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -58,7 +58,8 @@
   const uw = safe(() => (typeof unsafeWindow !== 'undefined' ? unsafeWindow : undefined));
   const wj = safe(() => window.wrappedJSObject);
   const dv = safe(() => document.defaultView && document.defaultView.wrappedJSObject);
-  const CANDIDATES = [uw, wj, dv, window].filter((w, i, l) => w && l.indexOf(w) === i);
+  const xn = safe(() => (typeof XPCNativeWrapper !== 'undefined' ? XPCNativeWrapper.unwrap(window) : undefined));
+  const CANDIDATES = [uw, wj, dv, xn, window].filter((w, i, l) => w && l.indexOf(w) === i);
   if (CANDIDATES.some(w => safe(() => w.__psgMod || w.__psgModVersion))) return;   // ya está puesto
   const HAS_XF = typeof exportFunction === 'function' && typeof cloneInto === 'function';
   // Se fijan al encontrar el juego (ver «arranque»):
@@ -237,37 +238,65 @@
     return !!(G && G.LevelUp && typeof G.LevelUp.offer === 'function' && G.RunUI && typeof G.RunUI.showLevelUp === 'function'
       && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI);
   });
-  let tries = 0;
+  // ---------------- indicador de estado ----------------
+  // Sale arriba en el centro nada más cargar la página: si no lo ves, el gestor no está
+  // ejecutando el script. Verde = funcionando (se oculta solo), rojo = no encuentra el juego.
+  // Tocarlo lo cierra.
+  let pill = null, pillT = 0;
+  function status(text, kind, hideMs) {
+    try {
+      const host = document.body || document.documentElement;
+      if (!host) return;
+      if (!pill) {
+        pill = document.createElement('div');
+        pill.setAttribute('translate', 'no');
+        pill.setAttribute('data-psg-status', '');
+        pill.style.cssText = 'position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:2147483647;max-width:94vw;'
+          + 'padding:5px 12px;border-radius:999px;font:12px/1.35 sans-serif;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5);'
+          + 'text-align:center;cursor:pointer;-webkit-user-select:none;user-select:none';
+        pill.addEventListener('click', () => { pill.style.display = 'none'; });
+      }
+      if (!pill.isConnected) host.appendChild(pill);
+      pill.textContent = text;
+      pill.style.background = kind === 'ok' ? '#1f7a45' : kind === 'err' ? '#9a1d1d' : kind === 'warn' ? '#8a5a00' : '#2b3550';
+      pill.style.display = '';
+      clearTimeout(pillT);
+      if (hideMs) pillT = setTimeout(() => { pill.style.display = 'none'; }, hideMs);
+    } catch (e) { /* nada */ }
+  }
+
+  // ---------------- arranque: buscar el juego ----------------
+  let tries = 0, warned = false;
   const boot = setInterval(() => {
+    if (tries === 1) status('PSG ' + VERSION + ' · buscando el juego…', 'info');
     const w = CANDIDATES.find(gameReady);
     if (w) {
       clearInterval(boot);
       W = w;
       XRAY = W !== window && HAS_XF;
       MODE = W === window ? 'page' : XRAY ? 'content' : 'limitado';
-      try { install(W.G); } catch (e) { console.error('[PSG] no se pudo instalar', e); notFound('al instalar: ' + ((e && e.message) || e)); }
-    } else if (++tries > 240) {                 // ~60 s
+      try {
+        install(W.G);
+        if (MODE === 'limitado') status('PSG ' + VERSION + ' ⚠ modo limitado: sólo el analizador [' + diag() + '] · toca para cerrar', 'warn');
+        else status('PSG ' + VERSION + ' ✓ funcionando' + (XRAY ? ' (modo compatible)' : '') + ' · en el menú: ⭐ Analizador', 'ok', 9000);
+      } catch (e) {
+        console.error('[PSG] no se pudo instalar', e);
+        status('PSG ' + VERSION + ' ✗ error al instalar: ' + ((e && e.message) || e) + ' [' + diag() + '] · toca para cerrar', 'err');
+      }
+    } else if (++tries === 60 && !warned) {    // ~15 s: se avisa, pero se sigue buscando un rato
+      warned = true;
+      status('PSG ' + VERSION + ' ✗ no encuentro el juego [' + diag() + '] · sigo buscando · toca para cerrar', 'err');
+    } else if (tries > 480) {                    // ~2 min
       clearInterval(boot);
-      notFound('no encuentro el juego');
     }
   }, 250);
 
-  /** Qué ve el script (para el aviso de error): así una captura basta para saber qué pasa. */
+  /** Qué ve el script (para el indicador): así una captura basta para saber qué pasa. */
   function diag() {
     const seesG = w => (safe(() => !!w.G) ? 'G' : '-');
     return 'uw:' + (uw ? (uw === window ? '=w' : 'sí') + seesG(uw) : 'no') + ' wj:' + (wj ? 'sí' + seesG(wj) : 'no')
-      + ' dv:' + (dv ? 'sí' + seesG(dv) : 'no') + ' w:' + seesG(window) + ' xf:' + (HAS_XF ? 'sí' : 'no');
-  }
-
-  /** Aviso arriba de la pantalla cuando el ayudante no puede arrancar. */
-  function notFound(what) {
-    if (!document.getElementById('cards')) return;   // no es la página del juego
-    const d = document.createElement('div');
-    d.textContent = 'Ayudante PSG ' + VERSION + ': ' + what + ' [' + diag() + ']. Mándame una captura de este aviso. Toca para cerrar.';
-    d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;padding:8px 10px;border-radius:8px;'
-      + 'background:#3a1010;color:#ffd0d0;font:13px/1.3 sans-serif;text-align:center';
-    d.onclick = () => d.remove();
-    document.body.appendChild(d);
+      + ' dv:' + (dv ? 'sí' + seesG(dv) : 'no') + ' xn:' + (xn ? 'sí' + seesG(xn) : 'no') + ' w:' + seesG(window)
+      + ' xf:' + (HAS_XF ? 'sí' : 'no');
   }
 
   // =====================================================================
@@ -491,7 +520,11 @@
       b.id = 'psg-an-btn';
       b.className = 'menu-item';
       b.setAttribute('translate', 'no');
-      b.innerHTML = 'Analizador PSG<small>Naturaleza, habilidad y combos</small>';
+      // Igual que los botones del juego: icono (columna 1) + título + subtítulo (columna 2).
+      let ico = '';
+      try { ico = G.Icons && G.Icons.html ? String(G.Icons.html('star', 26)) : ''; } catch (e) { /* nada */ }
+      b.innerHTML = '<span class="mi-ico">' + (ico || '<span style="font-size:22px;line-height:26px">📊</span>') + '</span>'
+        + 'Analizador<small>PSG · naturaleza, habilidad y combos</small>';
       const after = list.querySelector('[data-go="dex"]');
       list.insertBefore(b, after ? after.nextSibling : null);
       b.addEventListener('click', open);
@@ -979,7 +1012,6 @@
 
     try { mod.analyzer = installAnalyzer(G, toast, core); }
     catch (e) { console.error('[PSG] no se pudo instalar el analizador', e); }
-    toast('Ayudante PSG ' + VERSION + ' activo' + (XRAY ? ' (modo compatible)' : MODE === 'limitado'
-      ? ' (modo limitado: sólo el analizador) [' + diag() + ']' : ''));
+    // (el aviso de «funcionando» lo da el indicador de estado, ver «arranque»)
   }
 })();

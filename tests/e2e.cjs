@@ -64,6 +64,8 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
 
   await page.waitForFunction(() => window.__psgMod && window.__psgMod.version, null, { timeout: 30000 });
   check(true, 'el ayudante se instala (' + await page.evaluate(() => window.__psgMod.version + ', modo ' + window.__psgMod.mode) + ')');
+  const pillTxt = await page.evaluate(() => (document.querySelector('[data-psg-status]') || {}).textContent || '');
+  check(/✓ funcionando/.test(pillTxt), 'indicador de estado: «' + pillTxt + '»');
   // Pantalla «toca para empezar» (la pide el navegador para el sonido).
   await page.locator('#tap-start').click({ timeout: 3000 }).catch(() => {});
   await page.waitForFunction(() => { const t = document.getElementById('tap-start'); return !t || t.offsetParent === null; }, null, { timeout: 5000 })

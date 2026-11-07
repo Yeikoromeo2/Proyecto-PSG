@@ -5,7 +5,7 @@ un **analizador de tu colección** y una **ayuda con las cartas** que salen al s
 
 ## Analizador de colección
 
-En el menú principal aparece el botón **Analizador PSG** (debajo de *Pokémon*). Abre una
+En el menú principal aparece el botón **⭐ Analizador** (junto a *Pokémon*). Abre una
 lista con todos tus Pokémon, cada uno con dos barras (⚔ potencia y 🛡 aguante, de 0 a 100
 respecto al mejor de tu colección), ordenable por *Más potentes*, *Más aguante*,
 *Potencia + aguante*, *Naturaleza o habilidad a revisar*, *Más usados* o *Nº de Pokédex*,
@@ -92,21 +92,25 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.6.1 activo» (ver abajo los modos).
+   Al cargar verás la etiqueta verde «PSG ✓ funcionando» arriba en el centro (ver abajo).
 
-Si Violentmonkey dice «No se pudieron inyectar algunos scripts» o sale el aviso rojo
-«no encuentro el juego», actualiza el script a la última versión. El juego tiene una regla de
-seguridad (CSP) que bloquea los scripts metidos en la página y, en Firefox para Android, el
-gestor llega tarde; el script entonces se ejecuta en el espacio aislado del gestor y busca el
-juego por todas las vías que da Firefox. Al entrar verás uno de estos avisos:
+**¿Cómo sé si funciona?** Nada más cargar el juego sale arriba, en el centro, una etiqueta
+**PSG** (tocarla la cierra):
 
-- «Ayudante PSG 0.6.1 activo»: modo normal (página).
-- «… activo (modo compatible)»: espacio aislado de Firefox, todo funciona.
-- «… activo (modo limitado: sólo el analizador)»: el gestor no da las herramientas de Firefox
-  para que el juego llame al script; el analizador funciona y las cartas no se tocan.
-- Aviso rojo con letras entre corchetes (`uw:… wj:… dv:… xf:…`): dice qué ve el script.
-  Una captura de ese aviso basta para saber qué falla.
+- gris «buscando el juego…»: el script está corriendo y esperando a que cargue el juego;
+- verde «✓ funcionando» (o «✓ funcionando (modo compatible)» en Firefox Android): todo bien,
+  y en el menú aparece **⭐ Analizador**; se oculta sola a los pocos segundos;
+- naranja «⚠ modo limitado»: sólo funciona el analizador (las cartas no se tocan);
+- roja «✗ …» con letras entre corchetes (`uw:… wj:… dv:… xn:… xf:…`): no encuentra el juego
+  (sale a los 15 s). Una captura de esa etiqueta basta para saber qué falla.
 
+**Si no sale ninguna etiqueta**, el gestor no está ejecutando el script: abre Violentmonkey
+estando en pokesurvivor.com y mira que el script aparezca **sin tachar** y activado, y que su
+versión sea la última (si no, vuelve a abrir el enlace del script y pulsa *Actualizar*).
+
+El juego tiene una regla de seguridad (CSP) que bloquea los scripts metidos en la página y, en
+Firefox para Android, el gestor llega tarde: desde la 0.6.0 el script se ejecuta entonces en el
+espacio aislado del gestor y busca el juego por todas las vías que da Firefox.
 En los ajustes del script en Violentmonkey, el modo de inyección debe ser **auto**.
 
 También funciona en el ordenador (Chrome, Firefox, Edge) con Tampermonkey o Violentmonkey.
