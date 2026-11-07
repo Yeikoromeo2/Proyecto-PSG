@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.6.0
+// @version      0.6.1
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -50,13 +50,21 @@
 (function () {
   'use strict';
 
-  // Ventana del juego: la de la página (modo page) o la de debajo de la Xray (modo content de Firefox).
-  const W = (typeof unsafeWindow !== 'undefined' && unsafeWindow) || (window.wrappedJSObject) || window;
-  if (W.__psgMod || W.__psgModVersion) return;
-  const VERSION = '0.6.0';
-  // Herramientas de Firefox para el modo content (en modo page no existen y no hacen falta).
-  const XRAY = typeof exportFunction === 'function' && typeof cloneInto === 'function' && W !== window;
-  const MODE = XRAY ? 'content' : 'page';
+  const VERSION = '0.6.1';
+  // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
+  // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
+  // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
+  const safe = f => { try { return f(); } catch (e) { return undefined; } };
+  const uw = safe(() => (typeof unsafeWindow !== 'undefined' ? unsafeWindow : undefined));
+  const wj = safe(() => window.wrappedJSObject);
+  const dv = safe(() => document.defaultView && document.defaultView.wrappedJSObject);
+  const CANDIDATES = [uw, wj, dv, window].filter((w, i, l) => w && l.indexOf(w) === i);
+  if (CANDIDATES.some(w => safe(() => w.__psgMod || w.__psgModVersion))) return;   // ya está puesto
+  const HAS_XF = typeof exportFunction === 'function' && typeof cloneInto === 'function';
+  // Se fijan al encontrar el juego (ver «arranque»):
+  //   W     su ventana · XRAY  modo content con las herramientas de Firefox
+  //   MODE  'page' | 'content' | 'limitado' (aislado sin esas herramientas: sólo el analizador, que sólo lee)
+  let W = window, XRAY = false, MODE = 'page';
   /** Función nuestra que el juego tiene que poder llamar. */
   const exp = f => (XRAY ? exportFunction(f, W) : f);
   /** Objeto nuestro que el juego tiene que poder leer (sólo datos). */
@@ -224,28 +232,38 @@
 
   // ---------------- arranque ----------------
 
-  const ready = () => {
-    const G = W.G;
-    return G && G.LevelUp && typeof G.LevelUp.offer === 'function' && G.RunUI && typeof G.RunUI.showLevelUp === 'function'
-      && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI;
-  };
+  const gameReady = w => safe(() => {
+    const G = w.G;
+    return !!(G && G.LevelUp && typeof G.LevelUp.offer === 'function' && G.RunUI && typeof G.RunUI.showLevelUp === 'function'
+      && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI);
+  });
   let tries = 0;
   const boot = setInterval(() => {
-    if (ready()) {
+    const w = CANDIDATES.find(gameReady);
+    if (w) {
       clearInterval(boot);
-      try { install(W.G); } catch (e) { console.error('[PSG] no se pudo instalar', e); }
+      W = w;
+      XRAY = W !== window && HAS_XF;
+      MODE = W === window ? 'page' : XRAY ? 'content' : 'limitado';
+      try { install(W.G); } catch (e) { console.error('[PSG] no se pudo instalar', e); notFound('al instalar: ' + ((e && e.message) || e)); }
     } else if (++tries > 240) {                 // ~60 s
       clearInterval(boot);
-      notFound();
+      notFound('no encuentro el juego');
     }
   }, 250);
 
-  /** El juego está en la página pero su window.G no se ve (script aislado). */
-  function notFound() {
+  /** Qué ve el script (para el aviso de error): así una captura basta para saber qué pasa. */
+  function diag() {
+    const seesG = w => (safe(() => !!w.G) ? 'G' : '-');
+    return 'uw:' + (uw ? (uw === window ? '=w' : 'sí') + seesG(uw) : 'no') + ' wj:' + (wj ? 'sí' + seesG(wj) : 'no')
+      + ' dv:' + (dv ? 'sí' + seesG(dv) : 'no') + ' w:' + seesG(window) + ' xf:' + (HAS_XF ? 'sí' : 'no');
+  }
+
+  /** Aviso arriba de la pantalla cuando el ayudante no puede arrancar. */
+  function notFound(what) {
     if (!document.getElementById('cards')) return;   // no es la página del juego
     const d = document.createElement('div');
-    d.textContent = 'Ayudante PSG ' + VERSION + ' (' + MODE + '): no encuentro el juego. Comprueba que el script está '
-      + 'actualizado y que su modo de inyección es «auto» (o «content» en Firefox). Toca para cerrar.';
+    d.textContent = 'Ayudante PSG ' + VERSION + ': ' + what + ' [' + diag() + ']. Mándame una captura de este aviso. Toca para cerrar.';
     d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;padding:8px 10px;border-radius:8px;'
       + 'background:#3a1010;color:#ffd0d0;font:13px/1.3 sans-serif;text-align:center';
     d.onclick = () => d.remove();
@@ -705,7 +723,7 @@
     // Objeto para depurar desde la consola (y para tests/e2e.cjs). En modo content el juego no
     // puede leer objetos nuestros: sólo se deja una marca con la versión.
     const mod = { version: VERSION, mode: MODE, cfg };
-    if (XRAY && !W.__psgSimXray) W.__psgModVersion = VERSION; else W.__psgMod = mod;   // (__psgSimXray: tests/e2e.cjs)
+    if (W !== window && !W.__psgSimXray) W.__psgModVersion = VERSION; else W.__psgMod = mod;   // (__psgSimXray: tests/e2e.cjs)
 
     const origOffer = G.LevelUp.offer;
     const origShow = G.RunUI.showLevelUp;
@@ -779,6 +797,7 @@
       return pinned.concat(rotated.slice(0, room)).slice(0, n);
     }
 
+    if (MODE !== 'limitado') {
     G.LevelUp.offer = exp(function (plArg, n) {
       try {
         const pl = unX(plArg), k = n || 3;
@@ -811,6 +830,7 @@
         return orig.call(G.Ranking, a, b, c);
       });
     }
+    }   // (fin de los ganchos: en modo «limitado» el juego no podría llamar a funciones nuestras)
 
     // ---------------- pantalla de cartas ----------------
 
@@ -959,6 +979,7 @@
 
     try { mod.analyzer = installAnalyzer(G, toast, core); }
     catch (e) { console.error('[PSG] no se pudo instalar el analizador', e); }
-    toast('Ayudante PSG ' + VERSION + ' activo' + (XRAY ? ' (modo compatible)' : ''));
+    toast('Ayudante PSG ' + VERSION + ' activo' + (XRAY ? ' (modo compatible)' : MODE === 'limitado'
+      ? ' (modo limitado: sólo el analizador) [' + diag() + ']' : ''));
   }
 })();

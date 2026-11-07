@@ -22,4 +22,6 @@
 
 ## Pruebas
 - `node tests/e2e.cjs /ruta/a/copia/de/pokesurvivor` (Playwright, sin red).
-- `PSG_SIM_XRAY=1 node tests/e2e.cjs ...` simula el modo content (no la seguridad real de Firefox).
+- `PSG_SIM_XRAY=1|2 node tests/e2e.cjs ...` simula el modo content (no la seguridad real de Firefox).
+  La variante 2 es la de Violentmonkey en Firefox Android: `unsafeWindow` es la ventana aislada y el
+  juego sólo se ve por `window.wrappedJSObject`. Pasar las tres (sin variable, 1 y 2) antes de subir.

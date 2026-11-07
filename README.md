@@ -92,14 +92,22 @@ CSP, sólo deja ejecutar scripts del propio juego). Hace falta **Firefox para An
    este repositorio; en GitHub, botón *Raw*). Violentmonkey ofrecerá **Instalar**.
    *Alternativa:* Violentmonkey → **+** (nuevo script) → pega el contenido del archivo → guardar.
 5. Entra a <https://pokesurvivor.com> en Firefox e **inicia sesión con tu misma cuenta**.
-   Al cargar verás el aviso «Ayudante PSG 0.6.0 activo».
+   Al cargar verás el aviso «Ayudante PSG 0.6.1 activo» (ver abajo los modos).
 
-Si Violentmonkey dice «No se pudieron inyectar algunos scripts», actualiza el script a la
-última versión (desde la 0.6.0 ya no pasa): el juego tiene una regla de seguridad (CSP) que
-bloquea los scripts metidos en la página y, en Firefox para Android, el gestor llega tarde. Desde
-la 0.6.0 el script lo detecta y se ejecuta en el espacio aislado del gestor; el aviso al entrar
-dice entonces «Ayudante PSG 0.6.0 activo (modo compatible)». En los ajustes del script en
-Violentmonkey, el modo de inyección debe ser **auto** (el que pide el script).
+Si Violentmonkey dice «No se pudieron inyectar algunos scripts» o sale el aviso rojo
+«no encuentro el juego», actualiza el script a la última versión. El juego tiene una regla de
+seguridad (CSP) que bloquea los scripts metidos en la página y, en Firefox para Android, el
+gestor llega tarde; el script entonces se ejecuta en el espacio aislado del gestor y busca el
+juego por todas las vías que da Firefox. Al entrar verás uno de estos avisos:
+
+- «Ayudante PSG 0.6.1 activo»: modo normal (página).
+- «… activo (modo compatible)»: espacio aislado de Firefox, todo funciona.
+- «… activo (modo limitado: sólo el analizador)»: el gestor no da las herramientas de Firefox
+  para que el juego llame al script; el analizador funciona y las cartas no se tocan.
+- Aviso rojo con letras entre corchetes (`uw:… wj:… dv:… xf:…`): dice qué ve el script.
+  Una captura de ese aviso basta para saber qué falla.
+
+En los ajustes del script en Violentmonkey, el modo de inyección debe ser **auto**.
 
 También funciona en el ordenador (Chrome, Firefox, Edge) con Tampermonkey o Violentmonkey.
 

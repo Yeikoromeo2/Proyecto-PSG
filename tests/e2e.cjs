@@ -44,10 +44,21 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     // Simula el «modo content» de Firefox (Violentmonkey con la CSP del juego): unsafeWindow distinto de
     // window y exportFunction/cloneInto presentes. No reproduce la seguridad real de las Xray, pero recorre
     // el mismo camino del código (exportar funciones, copiar listas, devolver listas del juego).
+    //   PSG_SIM_XRAY=1  unsafeWindow es la ventana del juego (Tampermonkey en Firefox)
+    //   PSG_SIM_XRAY=2  unsafeWindow es la ventana aislada y el juego sólo se ve por window.wrappedJSObject
+    //                   (lo que pasó con Violentmonkey en Firefox Android con la 0.6.0)
     const src = fs.readFileSync(SCRIPT, 'utf8');
+    const v2 = process.env.PSG_SIM_XRAY === '2';
     await page.addInitScript(`window.__psgSimXray = true;
-      (function (window, unsafeWindow, exportFunction, cloneInto) {\n${src}\n})(new Proxy(window, {}), window, f => f, o => JSON.parse(JSON.stringify(o)));`);
-    console.log('  (simulando el modo content de Firefox)');
+      (function () {
+        const real = window;
+        const isolated = new Proxy(real, { get(t, k) {
+          if (k === 'G' || k === '__psgMod' || k === '__psgModVersion') return undefined;   // la ventana aislada no ve lo del juego
+          if (k === 'wrappedJSObject') return ${v2 ? 't' : 'undefined'};
+          const v = Reflect.get(t, k, t); return typeof v === 'function' ? v.bind(t) : v; } });
+        (function (window, unsafeWindow, exportFunction, cloneInto) {\n${src}\n})(isolated, ${v2 ? 'isolated' : 'real'}, f => f, o => JSON.parse(JSON.stringify(o)));
+      })();`);
+    console.log('  (simulando el modo content de Firefox, variante ' + (v2 ? 2 : 1) + ')');
   } else await page.addInitScript({ path: SCRIPT });
   await page.goto(url);
 
