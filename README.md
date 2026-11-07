@@ -112,11 +112,16 @@ El juego tiene una regla de seguridad (CSP) que bloquea los scripts metidos en l
 Firefox para Android, el gestor llega tarde: desde la 0.6.0 el script se ejecuta entonces en el
 espacio aislado del gestor y busca el juego por todas las vías que da Firefox.
 
-Además, la versión publicada del juego va **encerrada en una función** (es el anti-trampas del
-autor: `G` no existe desde fuera). Desde la 0.7.0 el script atrapa el objeto del juego en el
-momento en que se crea (la misma técnica que el «PokéSurvivor Mod» de la comunidad); por eso
-tiene que arrancar antes que el juego. Si la etiqueta roja dice «el script llegó tarde», recarga
-la página. Respeta la intención del autor: lo que se juegue con el modo libre no sube al ranking.
+Además, la versión publicada del juego va **encerrada en una función** y con los nombres de
+sus módulos **cifrados** (es el anti-trampas del autor: `G` no existe desde fuera y sus claves
+cambian de una versión a otra). Desde la 0.8.0 el script apunta los objetos que el juego crea al
+cargar y reconoce cada módulo por lo que contiene (el de las cartas tiene `offer` y `STATS`, etc.),
+no por su nombre; por eso tiene que arrancar antes que el juego. Si la etiqueta roja dice «el
+script llegó tarde», recarga la página; si dice `faltan:…`, el juego ha cambiado y hay que
+actualizar el script. Respeta la intención del autor: lo que se juegue con el modo libre no sube
+al ranking (las partidas normales sí cuentan: el ayudante no toca nada de lo que revisa el
+anti-trampas del juego).
+
 En los ajustes del script en Violentmonkey, el modo de inyección debe ser **auto**.
 
 También funciona en el ordenador (Chrome, Firefox, Edge) con Tampermonkey o Violentmonkey.
@@ -163,6 +168,16 @@ y el bloqueo del ranking:
 
 ```
 node tests/e2e.cjs /ruta/a/una/copia/de/pokesurvivor [carpeta-para-capturas]
+PSG_SIM_XRAY=1 node tests/e2e.cjs ...   # simula el modo aislado de Firefox (variantes 1 y 2)
+```
+
+`tests/preparar-copias.cjs` prepara, a partir de una copia con el código abierto, una copia
+«encerrada», otra «cifrada» como la publicada y, con `--real`, otra con el código que sirve hoy
+pokesurvivor.com (necesita red hacia esa web):
+
+```
+node tests/preparar-copias.cjs /ruta/a/copia /ruta/de/salida --real
+node tests/e2e.cjs /ruta/de/salida/real
 ```
 
 La copia del juego no va en este repositorio.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.7.0
+// @version      0.8.0
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -50,7 +50,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.0';
+  const VERSION = '0.8.0';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -66,48 +66,38 @@
 
   // ---------------- captura del juego (versión publicada) ----------------
   // En la versión publicada el juego va ENCERRADO en una función (anti-trampas del autor): `G` no
-  // existe en window. El juego crea su objeto de módulos con Object.create(null) y lo primero que
-  // hace es ponerle BUILT = true. Mientras no lo tengamos, Object.create(null) da objetos con un
-  // prototipo «cebo» cuyo setter de BUILT nos entrega el objeto; después todo vuelve a ser como
-  // era (prototipo null y el Object.create original). Es la misma técnica que el «PokéSurvivor Mod»
-  // de la comunidad. Hay que ponerla ANTES de que corra el juego: por eso va aquí, al principio.
-  // En modo content (Firefox) se hace sobre la ventana de la página con exportFunction/cloneInto.
+  // existe en window, y además las claves de sus módulos van cifradas y cambian de una versión a
+  // otra (p. ej. RunUI → '_37c9881'). Lo que sí se mantiene: el juego crea su objeto de módulos con
+  // Object.create(null) nada más empezar, y los módulos conservan los nombres de sus funciones
+  // (offer, showLevelUp, pick…). Así que:
+  //   1) mientras carga la página, se apuntan los objetos creados con Object.create(null)
+  //      (sin tocarlos: Object.create sigue haciendo lo mismo; se quita al acabar de cargar);
+  //   2) después, cada módulo se reconoce por lo que contiene, no por su nombre (ver SIG/resolve).
+  // Hay que ponerlo ANTES de que corra el juego: por eso va aquí, al principio del script.
+  // En modo content (Firefox) se hace sobre la ventana de la página con exportFunction.
   const PW = wj || dv || xn || (uw && uw !== window ? uw : null) || window;   // ventana de la página
   const PX = PW !== window && HAS_XF;
-  let NS = null, trap = 'off';
+  const born = [];       // objetos creados con Object.create(null) mientras carga el juego
+  let trap = 'off';
   (function setTrap() {
     try {
       const O = PW.Object, nativeCreate = O.create;
-      const fn = f => (PX ? exportFunction(f, PW) : f);
-      const desc = d => (PX ? cloneInto(d, PW, { cloneFunctions: true }) : d);
-      const un = o => (o && typeof o === 'object' && o.wrappedJSObject) || o;
-      const pending = [];
       let armed = true;
-      const release = () => {
-        if (!armed) return;
-        armed = false;
-        if (O.create !== nativeCreate) O.create = nativeCreate;
-        for (const o of pending) { try { O.setPrototypeOf(o, null); } catch (e) { /* nada */ } }
-        pending.length = 0;
-      };
-      const bait = nativeCreate.call(O, null);
-      O.defineProperty(bait, 'BUILT', desc({
-        configurable: true,
-        get: function () { return undefined; },
-        set: function (v) {
-          const ns = un(this);
-          O.defineProperty(ns, 'BUILT', desc({ value: v, writable: true, configurable: true, enumerable: true }));
-          release();
-          if (!NS) { NS = ns; trap = 'cazado'; }
-        }
-      }));
-      O.create = fn(function create(proto, props) {
-        if (proto !== null || NS || !armed) return nativeCreate.call(O, proto, props);
-        const o = nativeCreate.call(O, bait, props);
-        pending.push(o);
+      const wrapped = (f => (PX ? exportFunction(f, PW) : f))(function create(proto, props) {
+        const o = nativeCreate.call(O, proto, props);
+        if (armed && proto === null && born.length < 400) born.push(o);
         return o;
       });
-      window.addEventListener('load', () => { release(); if (!NS && trap === 'puesto') trap = 'sin cazar'; }, { once: true });
+      O.create = wrapped;
+      // El juego es un script «defer»: cuando llega DOMContentLoaded ya ha corrido.
+      const disarm = () => {
+        if (!armed) return;
+        armed = false;
+        if (safe(() => O.create === wrapped)) O.create = nativeCreate;
+        trap = 'puesto(' + born.length + ')';
+      };
+      document.addEventListener('DOMContentLoaded', disarm, { once: true });
+      window.addEventListener('load', disarm, { once: true });
       trap = 'puesto';
     } catch (e) {
       trap = 'error: ' + ((e && e.message) || e);
@@ -285,12 +275,65 @@
 
   // ---------------- arranque ----------------
 
-  const gOk = G => !!safe(() => G && G.LevelUp && typeof G.LevelUp.offer === 'function' && G.RunUI
-    && typeof G.RunUI.showLevelUp === 'function' && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI);
+  // ---------------- reconocer los módulos del juego por su contenido ----------------
+  const isFn = (o, k) => !!safe(() => typeof o[k] === 'function');
+  const has = (o, k) => !!safe(() => k in o);
+  const SIG = {
+    LevelUp: o => isFn(o, 'offer') && has(o, 'STATS'),
+    RunUI: o => isFn(o, 'showLevelUp') && isFn(o, 'pick'),
+    Game: o => isFn(o, 'startRun') && has(o, 'player') && has(o, 'state'),
+    Moves: o => isFn(o, 'poolFor') && isFn(o, 'instance') && has(o, 'BY_ID'),
+    Ranking: o => isFn(o, 'submitSolo'),
+    UI: o => isFn(o, 'toast') && isFn(o, 'show') && isFn(o, 'hide'),
+    Coop: o => isFn(o, 'levelStart') && isFn(o, 'localPicked'),
+    Stats: o => isFn(o, 'fit') && isFn(o, 'sideOf') && isFn(o, 'taken'),
+    DB: o => isFn(o, 'upgradesOf') && has(o, 'save'),
+    Mons: o => isFn(o, 'natureOf') && isFn(o, 'monFor') && isFn(o, 'abilityOf'),
+    AbilityFX: o => isFn(o, 'of') && has(o, 'FX'),
+    Upgrades: o => isFn(o, 'perks') && has(o, 'LIST'),
+    U: o => isFn(o, 'clamp') && has(o, 'TYPE_NAME'),
+    Icons: o => isFn(o, 'html') && isFn(o, 'canvas') && isFn(o, 'draw'),
+    NATURES: o => !!safe(() => o.length === 25 && o[0].id === 'hardy'),
+    NATURE_BY: o => !!safe(() => !('length' in o) && o.hardy && 'up' in o.hardy),
+    DEX: o => !!safe(() => o.length > 500 && 'dex' in o[0] && 'types' in o[0]),
+    DEX_BY: o => !!safe(() => !('length' in o) && o[1].dex === 1 && 'types' in o[1] && !!o[25])
+  };
+  const NEEDED = ['LevelUp', 'RunUI', 'Game', 'Moves', 'Ranking', 'UI'];
+  let missing = [];
+  /** Fachada con los nombres de siempre (G.LevelUp, G.Moves…) apuntando a los módulos del juego. */
+  function resolve(ns) {
+    const G = {};
+    const keys = safe(() => Object.keys(ns)) || [];
+    for (const name in SIG) {
+      let v = safe(() => ns[name]);                       // con nombre normal (dev.html, versiones antiguas)
+      if (!(v && SIG[name](v))) {
+        v = undefined;
+        for (const k of keys) {                           // con nombre cifrado: por su contenido
+          const x = safe(() => ns[k]);
+          if (x && typeof x === 'object' && SIG[name](x)) { v = x; break; }
+        }
+      }
+      if (v) G[name] = v;
+    }
+    const T = safe(() => ns.T);
+    G.T = typeof T === 'function' ? T : (t => t);
+    for (const k of ['startMoveOf', 'startChoices']) { const v = safe(() => ns[k]); if (typeof v === 'function') G[k] = v; }
+    return G;
+  }
+  const gOk = G => !!safe(() => G && typeof G.LevelUp.offer === 'function' && typeof G.RunUI.showLevelUp === 'function'
+    && typeof G.RunUI.pick === 'function' && G.Game && G.Moves && G.Ranking && G.UI);
   /** { G, w }: el juego y su ventana — el cazado (versión publicada) o window.G (dev.html y versiones antiguas). */
   function findGame() {
-    if (NS && gOk(NS)) return { G: NS, w: PW };
-    for (const w of CANDIDATES) { const G = safe(() => w.G); if (gOk(G)) return { G, w }; }
+    const tryNs = (ns, w) => {
+      if ((safe(() => Object.keys(ns).length) || 0) < 15) return null;
+      const G = resolve(ns);
+      if (gOk(G)) return { G, w };
+      const m = NEEDED.filter(k => !G[k]);
+      if (!missing.length || m.length < missing.length) missing = m;
+      return null;
+    };
+    for (const ns of born) { const r = tryNs(ns, PW); if (r) return r; }
+    for (const w of CANDIDATES) { const g = safe(() => w.G); if (g) { const r = tryNs(g, w); if (r) return r; } }
     return null;
   }
   // ---------------- indicador de estado ----------------
@@ -350,7 +393,7 @@
   /** Qué ve el script (para el indicador): así una captura basta para saber qué pasa. */
   function diag() {
     const seesG = w => (safe(() => !!w.G) ? 'G' : '-');
-    return 'trampa:' + trap + ' ns:' + (NS ? (gOk(NS) ? 'ok' : 'a medias') : 'no') + ' inicio:' + READY_AT_START
+    return 'trampa:' + trap + ' objetos:' + born.length + (missing.length ? ' faltan:' + missing.join(',') : '') + ' inicio:' + READY_AT_START
       + ' uw:' + (uw ? (uw === window ? '=w' : 'sí') + seesG(uw) : 'no') + ' wj:' + (wj ? 'sí' + seesG(wj) : 'no')
       + ' dv:' + (dv ? 'sí' + seesG(dv) : 'no') + ' xn:' + (xn ? 'sí' + seesG(xn) : 'no') + ' w:' + seesG(window)
       + ' xf:' + (HAS_XF ? 'sí' : 'no');
