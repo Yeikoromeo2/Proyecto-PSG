@@ -10,4 +10,9 @@
     <string name="google_play">▶ Jugar</string>
     <string name="google_switch">Cambiar a modo ayudante</string>
     <string name="helper_updated">Ayudante PSG %1$s descargado: se usará al volver a abrir la app.</string>
+    <string name="helper_new_title">Ayudante PSG %1$s listo</string>
+    <string name="helper_new_text">Hay una versión nueva del ayudante. Recarga el juego para usarla (si estás en mitad de una partida, mejor acábala antes).</string>
+    <string name="helper_reload">Recargar ahora</string>
+    <string name="helper_later">Luego</string>
+    <string name="helper_later_toast">Se usará la próxima vez que se recargue el juego.</string>
 </resources>

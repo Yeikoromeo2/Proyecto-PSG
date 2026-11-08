@@ -15,6 +15,9 @@
 ## Compatibilidad con Firefox (modo content de Violentmonkey)
 - La CSP del juego bloquea la inyección en la página en Firefox Android: el script usa
   `@inject-into auto` y debe funcionar también aislado (Xray de Firefox).
+- Dos copias instaladas a la vez (una vieja olvidada) arrancan las dos: el script marca su versión en la
+  página (`data-psg-ver`) y en la ventana (`__psgBoot`); la igual o más vieja que llega después no hace
+  nada, y si la que corre es anterior a 0.9.7 (sin marca) se avisa en rojo para que la borren.
 - Reglas al tocar el código: las funciones que el juego llama se asignan con `exp()`; los objetos
   nuestros que el juego lee, con `share()`; las listas del juego se copian con `arr()` antes de usar
   `.map/.filter/.find/...` con funciones nuestras; las listas que devolvemos al juego, con `toPage()`;
@@ -46,7 +49,9 @@
   NO falsear el user agent ni usar el OAuth client del juego para saltarse esa regla.
 - El userscript se copia al APK al compilar (no hay segunda copia) y, además, la app lo actualiza
   sola: al arrancar usa el más nuevo entre el del APK y el descargado, y en segundo plano baja el de
-  `HELPER_URL` (se valida: cabecera de userscript + namespace del proyecto) para el siguiente arranque. Cualquier cambio en el
+  `HELPER_URL` (se valida: cabecera de userscript + namespace del proyecto); también al volver a la
+  app (cada 10 min como mucho). Si hay uno nuevo, cambia el script de inicio de la WebView al momento
+  y pregunta si recargar el juego (Android suele dejar la app abierta: no esperar a un arranque nuevo). Cualquier cambio en el
   userscript o en `android/` lanza `.github/workflows/android.yml`, que publica el APK en la
   versión `app-latest`.
 - La llave de firma NUNCA va en el repositorio (es público): Actions la lee de los Secrets

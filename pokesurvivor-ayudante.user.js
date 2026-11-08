@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.6
+// @version      0.9.7
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -58,7 +58,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.6';
+  const VERSION = '0.9.7';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -69,6 +69,17 @@
   const xn = safe(() => (typeof XPCNativeWrapper !== 'undefined' ? XPCNativeWrapper.unwrap(window) : undefined));
   const CANDIDATES = [uw, wj, dv, xn, window].filter((w, i, l) => w && l.indexOf(w) === i);
   if (CANDIDATES.some(w => safe(() => w.__psgMod || w.__psgModVersion))) return;   // ya está puesto
+  // Dos copias instaladas (p. ej. una vieja con otro nombre o en otro gestor): las dos arrancan a la vez.
+  // Se marca la versión en la página (el DOM lo ven todas las copias, también aisladas en Firefox):
+  // si ya hay una igual o más nueva, ésta no hace nada; si la que hay es más vieja, se avisa (ver dupWarn).
+  const verNum = v => String(v || '0').split('.').reduce((a, x) => a * 1000 + (parseInt(x, 10) || 0), 0);
+  const MARK = 'data-psg-ver';
+  // (al empezar puede no haber página todavía: también se marca la ventana del juego, que ven todas)
+  const marked = [safe(() => document.documentElement.getAttribute(MARK))]
+    .concat(CANDIDATES.map(w => safe(() => w.__psgBoot))).filter(v => typeof v === 'string');
+  if (marked.some(v => verNum(v) >= verNum(VERSION))) return;
+  safe(() => document.documentElement.setAttribute(MARK, VERSION));
+  for (const w of CANDIDATES) safe(() => { w.__psgBoot = VERSION; });
   const HAS_XF = typeof exportFunction === 'function' && typeof cloneInto === 'function';
   const READY_AT_START = safe(() => document.readyState) || '?';   // 'loading' = llegamos a tiempo
 
@@ -369,6 +380,8 @@
         pill.addEventListener('click', () => { pill.style.display = 'none'; });
       }
       if (!pill.isConnected) host.appendChild(pill);
+      const dup = dupWarn();
+      if (dup) { text = dup; kind = 'err'; hideMs = 0; }
       pill.textContent = text;
       pill.style.background = kind === 'ok' ? '#1f7a45' : kind === 'err' ? '#9a1d1d' : kind === 'warn' ? '#8a5a00' : '#2b3550';
       pill.style.display = '';
@@ -376,6 +389,23 @@
       if (hideMs) pillT = setTimeout(() => { pill.style.display = 'none'; }, hideMs);
     } catch (e) { /* nada */ }
   }
+
+  /**
+   * ¿Hay otra copia del ayudante, más vieja, funcionando a la vez? (las anteriores a 0.9.7 no marcan la
+   * página: se reconocen por su indicador «PSG x.y.z».) Devuelve el aviso o ''.
+   */
+  function dupWarn() {
+    const vs = new Set();
+    for (const el of safe(() => [...document.querySelectorAll('[data-psg-status]')]) || []) {
+      if (el === pill) continue;
+      const m = /PSG (\d+(?:\.\d+)+)/.exec(el.textContent || '');
+      if (m && m[1] !== VERSION) { vs.add(m[1]); el.style.display = 'none'; }
+    }
+    return vs.size ? 'PSG ' + VERSION + ' ⚠ tienes también instalada la versión ' + [...vs].join(', ')
+      + ' del ayudante y está funcionando a la vez: bórrala en Violentmonkey (deja sólo la ' + VERSION + ') y recarga · toca para cerrar' : '';
+  }
+  // Las viejas pintan su indicador un poco después: se vuelve a mirar unos segundos.
+  [1500, 4000, 9000].forEach(t => setTimeout(() => { const d = dupWarn(); if (d) status(d, 'err'); }, t));
 
   // ---------------- arranque: buscar el juego ----------------
   let tries = 0, warned = false;

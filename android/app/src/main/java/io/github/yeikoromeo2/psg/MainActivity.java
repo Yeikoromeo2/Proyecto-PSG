@@ -33,6 +33,7 @@ import android.widget.Toast;
 import androidx.browser.customtabs.CustomTabColorSchemeParams;
 import androidx.browser.customtabs.CustomTabsIntent;
 
+import androidx.webkit.ScriptHandler;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -82,6 +83,10 @@ public class MainActivity extends Activity {
     private WebView web;
     private String helperJs = "";
     private boolean helperAtStart = false;
+    private ScriptHandler helperHandle;
+    private long lastHelperCheck = 0;
+    /** Al volver a la app se mira si hay ayudante nuevo, como mucho cada 10 minutos. */
+    private static final long HELPER_CHECK_EVERY = 10 * 60 * 1000L;
     private SharedPreferences prefs;
 
     @Override
@@ -146,7 +151,7 @@ public class MainActivity extends Activity {
             Set<String> origins = new HashSet<>();
             origins.add("https://pokesurvivor.com");
             origins.add("https://www.pokesurvivor.com");
-            WebViewCompat.addDocumentStartJavaScript(web, helperJs, origins);
+            helperHandle = WebViewCompat.addDocumentStartJavaScript(web, helperJs, origins);
             helperAtStart = true;
         }
 
@@ -371,7 +376,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (web != null) web.onResume();
+        if (web != null) {
+            web.onResume();
+            // Android suele dejar la app abierta en segundo plano: también se busca ayudante nuevo al volver.
+            if (System.currentTimeMillis() - lastHelperCheck > HELPER_CHECK_EVERY) checkHelperUpdate(helperJs);
+        }
         immersive();
     }
 
@@ -448,6 +457,7 @@ public class MainActivity extends Activity {
 
     /** Busca una versión más nueva del ayudante. Si la hay, la guarda para el próximo arranque. */
     private void checkHelperUpdate(final String current) {
+        lastHelperCheck = System.currentTimeMillis();
         new Thread(() -> {
             HttpsURLConnection c = null;
             try {
@@ -461,10 +471,10 @@ public class MainActivity extends Activity {
                 try (FileOutputStream out = new FileOutputStream(cacheFile())) {
                     out.write(js.getBytes(StandardCharsets.UTF_8));
                 }
-                final String v = verStr(js);
+                final String v = verStr(js), fresh = js;
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    Toast.makeText(this, getString(R.string.helper_updated, v), Toast.LENGTH_LONG).show();
+                    applyHelper(fresh, v);
                 });
             } catch (Exception e) {
                 // sin internet o GitHub no responde: se sigue con el que ya hay
@@ -472,6 +482,34 @@ public class MainActivity extends Activity {
                 if (c != null) c.disconnect();
             }
         }).start();
+    }
+
+    /**
+     * Pone ya el ayudante nuevo (sin cerrar la app): cambia el script de inicio de la WebView y
+     * pregunta si recargar el juego ahora (en mitad de una partida mejor esperar a acabarla).
+     */
+    private void applyHelper(String js, String v) {
+        if (web == null || !newer(js, helperJs)) return;
+        if (helperAtStart && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            try {
+                if (helperHandle != null) helperHandle.remove();
+                Set<String> origins = new HashSet<>();
+                origins.add("https://pokesurvivor.com");
+                origins.add("https://www.pokesurvivor.com");
+                helperHandle = WebViewCompat.addDocumentStartJavaScript(web, js, origins);
+            } catch (RuntimeException e) {
+                Toast.makeText(this, getString(R.string.helper_updated, v), Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
+        helperJs = js;
+        new AlertDialog.Builder(this)
+                .setTitle(getString(R.string.helper_new_title, v))
+                .setMessage(R.string.helper_new_text)
+                .setPositiveButton(R.string.helper_reload, (d, w) -> { if (web != null) web.reload(); })
+                .setNegativeButton(R.string.helper_later, (d, w) ->
+                        Toast.makeText(this, R.string.helper_later_toast, Toast.LENGTH_LONG).show())
+                .show();
     }
 
     private static String readStream(InputStream in) throws IOException {
