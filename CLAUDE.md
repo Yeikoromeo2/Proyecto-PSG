@@ -64,3 +64,5 @@
 - `node tests/preparar-copias.cjs <copia> <salida> --real` crea copias «cerrado», «cifrado» y «real»
   (el código que sirve hoy pokesurvivor.com; la sesión necesita red hacia ese dominio). Probar SIEMPRE
   contra `salida/real` antes de subir un cambio que dependa del juego.
+  Regenerarla si el juego publicado cambió: con un `version.json` viejo el juego cree que hay versión
+  nueva y recarga la página al minuto (la prueba falla con «Execution context was destroyed»).

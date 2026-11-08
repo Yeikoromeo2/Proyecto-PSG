@@ -39,6 +39,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 915, height: 412 }, deviceScaleFactor: SHOTS ? 2 : 1, hasTouch: true, locale: 'es-ES' });
   page.on('pageerror', e => console.log('  [error de la página]', e.message));
+  page.on('crash', () => console.log('  [la página se ha caído]'));
   await page.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());       // sin red: modo local
   // Con el juego «encerrado» (como el publicado) no hay window.G: el script lo deja en window.G sólo para las pruebas.
   await page.addInitScript(() => { window.__psgTest = true; });
@@ -187,8 +188,48 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     await page.screenshot({ path: path.join(SHOTS, 'analizador-filtros.png') });
     await page.setViewportSize({ width: 915, height: 412 });
   }
+  // Comparador: dos Pokémon con la ficha del juego (sprite animado, tipos), barras enfrentadas y debilidades.
+  await page.evaluate(() => window.__psgMod.analyzer.compare(25, 487));
+  await page.waitForTimeout(900);
+  const cm = await page.evaluate(() => {
+    const c = document.getElementById('psg-cmp');
+    const drawn = [...c.querySelectorAll('canvas.stage')].map(cv => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+      return n;
+    });
+    return { open: !c.classList.contains('psg-hidden'), drawn, duels: c.querySelectorAll('.psg-duel').length,
+      wins: c.querySelectorAll('.psg-duel.a, .psg-duel.b').length, types: c.querySelectorAll('.psg-tcell').length,
+      bad: c.querySelectorAll('.psg-mult.bad').length, sum: c.querySelector('.psg-cmp-sum').textContent.replace(/\s+/g, ' ').trim(),
+      names: [...c.querySelectorAll('.psg-cmp-card .nm')].map(n => n.textContent) };
+  });
+  check(cm.open && cm.names.join() === 'Pikachu,Giratina', 'comparador abierto: ' + cm.names.join(' vs '));
+  check(cm.drawn.length === 2 && cm.drawn.every(n => n > 200), `sprites animados del juego en los dos recuadros (${cm.drawn.join(', ')} píxeles)`);
+  check(cm.duels === 12 && cm.wins >= 10, `12 barras enfrentadas (stats del juego + en partida), ${cm.wins} con ganador`);
+  check(cm.types > 3 && cm.bad > 0, `debilidades y resistencias por tipo (${cm.types} tipos)`);
+  console.log('       ' + cm.sum);
+  if (SHOTS) {
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.waitForTimeout(400);
+    const shot = async f => { for (let i = 0; i < 3; i++) { try { await page.screenshot({ path: path.join(SHOTS, f) }); return; } catch (e) { console.log('       (captura ' + f + ': ' + e.message.split('\n')[0] + ')'); await page.waitForTimeout(500); } } };
+    await shot('comparador.png');
+    await page.evaluate(() => { const h = [...document.querySelectorAll('#psg-cmp h4')][2]; if (h) h.scrollIntoView({ block: 'start' }); });
+    await page.waitForTimeout(300);
+    await shot('comparador-2.png');
+    await page.setViewportSize({ width: 915, height: 412 });
+  }
+  const cm2 = await page.evaluate(() => {
+    const c = document.getElementById('psg-cmp');
+    c.querySelector('[data-mode="nat"]').click();
+    const inp = c.querySelector('[data-side="b"]');
+    inp.value = 'Mewtwo'; inp.dispatchEvent(new Event('change', { bubbles: true }));
+    return { b: c.querySelectorAll('.psg-cmp-card .nm')[1].textContent, duels: c.querySelectorAll('.psg-duel').length };
+  });
+  check(cm2.b === 'Mewtwo' && cm2.duels === 11, 'buscar otro Pokémon por nombre y ver los stats con su naturaleza');
+  await page.keyboard.press('Escape');
+  check(await page.evaluate(() => document.getElementById('psg-cmp').classList.contains('psg-hidden')
+    && !document.getElementById('psg-an').classList.contains('psg-hidden')), 'Esc cierra el comparador y vuelve al analizador');
   await page.evaluate(() => { const q = document.querySelector('#psg-an .psg-q'); q.value = ''; q.dispatchEvent(new Event('input')); });
-  console.log('       filas tras quitar la búsqueda:', await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-row')].map(r => r.dataset.dex).join(',')));
   await page.click('#psg-an .psg-row[data-dex="25"]').catch(() => {});
   if (!(await page.evaluate(() => !!document.querySelector('#psg-an .psg-row.open[data-dex="25"]')))) await page.click('#psg-an .psg-row[data-dex="25"]');
   if (SHOTS) {

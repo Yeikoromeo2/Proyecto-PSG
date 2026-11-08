@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.5
+// @version      0.9.6
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -58,7 +58,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.5';
+  const VERSION = '0.9.6';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -304,6 +304,7 @@
     AbilityFX: o => isFn(o, 'of') && has(o, 'FX'),
     Upgrades: o => isFn(o, 'perks') && has(o, 'LIST'),
     Items: o => isFn(o, 'roll') && has(o, 'BY') && has(o, 'LIST'),
+    Types: o => isFn(o, 'mult') && has(o, 'CHART') && isFn(o, 'label'),
     U: o => isFn(o, 'clamp') && has(o, 'TYPE_NAME'),
     Icons: o => isFn(o, 'html') && isFn(o, 'canvas') && isFn(o, 'draw'),
     NATURES: o => !!safe(() => o.length === 25 && o[0].id === 'hardy'),
@@ -867,6 +868,7 @@
         if (i < todo.length) { setTimeout(step, 0); return; }
         gameDone = true;
         computeRanks(); collect(); rescale(); paint(false);
+        if (cel && !cel.classList.contains('psg-hidden')) paintCmp();      // con los puestos 🏆 ya calculados
       };
       setTimeout(step, 0);
     }
@@ -950,6 +952,7 @@
       el.innerHTML = `
         <div class="psg-an-head">
           <b>Analizador de colección</b><span class="psg-an-count"></span>
+          <button type="button" class="psg-an-cmpb" title="Comparar dos Pokémon">⚖️ Comparar</button>
           <button type="button" class="psg-an-mig" title="Copia de seguridad de tu partida">⇄ Copia</button>
           <button type="button" class="psg-an-x" aria-label="Cerrar">✕</button>
         </div>
@@ -986,9 +989,15 @@
             y quita los Pokémon que se añaden a mano a una cuenta (lo trata como trampa). Para mover o recuperar una cuenta,
             pídeselo al autor en el Discord oficial: él sí puede hacerlo.</p>
         </details>
-        <div class="psg-an-list"></div>`;
+        <div class="psg-an-list"></div>
+        <div class="psg-cmp-tray psg-hidden"></div>`;
       document.body.appendChild(el);
       el.querySelector('.psg-an-x').addEventListener('click', close);
+      el.querySelector('.psg-an-cmpb').addEventListener('click', () => openCmp());
+      el.querySelector('.psg-cmp-tray').addEventListener('click', e => {
+        if (e.target.closest('[data-tray="go"]')) openCmp();
+        else if (e.target.closest('[data-tray="x"]')) { cmp.a = cmp.b = null; paintTray(); }
+      });
       el.querySelector('.psg-an-mig').addEventListener('click', () => {
         const d = el.querySelector('.psg-mig');
         d.open = true;
@@ -1028,6 +1037,8 @@
           refresh(dex);
           return;
         }
+        const cb = e.target.closest('[data-cmp]');
+        if (cb) { pickCmp(+cb.dataset.cmp); return; }
         const reset = e.target.closest('[data-reset]');
         if (reset) { A.resetPins(+reset.dataset.reset); refresh(+reset.dataset.reset); return; }
         const r = e.target.closest('.psg-row');
@@ -1037,6 +1048,7 @@
         paint();
       });
       document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && cel && !cel.classList.contains('psg-hidden')) { e.stopPropagation(); e.preventDefault(); closeCmp(); return; }
         if (e.key === 'Escape' && el && !el.classList.contains('psg-hidden')) { e.stopPropagation(); e.preventDefault(); close(); }
       }, true);
 
@@ -1157,6 +1169,7 @@
           <td>${m.buff ? 'Potenciador' : catTxt(m.cat)}</td><td>${m.buff ? '<small>' + esc(buffShort(m)) + '</small>' : Math.round(m.score)}</td><td>${m.evo ? esc(m.evoName) : '—'}</td></tr>`).join('');
       return `<div class="psg-det">
         ${r.owned ? '' : '<p class="psg-an-help">Aún no lo tienes: la naturaleza y la habilidad son las que te tocarían en esta cuenta (salen fijas por cuenta y Pokémon).</p>'}
+        <p class="psg-det-act"><button type="button" class="psg-mini psg-big" data-cmp="${r.dex}">⚖️ Comparar con otro Pokémon</button></p>
         <div class="psg-sec"><h4>Stats de fábrica 📊</h4>${statsHtml(r)}</div>
         <div class="psg-sec"><h4>De fábrica → combinación 🧪</h4>${comboHtml(r)}</div>
         <div class="psg-sec"><h4>Naturaleza ${nv[0]} ${nv[1]}</h4>
@@ -1332,8 +1345,221 @@
     `;
     (document.head || document.documentElement).appendChild(css);
 
+    // =============== comparador de dos Pokémon ===============
+    // Como la ficha de la Pokédex del juego (su recuadro con el sprite animado, sus chips de tipo y sus
+    // barras), pero de dos en dos y con quién gana en cada cosa.
+    const cmp = { a: null, b: null, mode: 'fab' };
+    let cel = null;
+    const getR = d => cache.get(d) || analyzeOne(d);
+    function pickCmp(dex) {
+      if (!cmp.a || cmp.a === dex) { cmp.a = dex; cmp.b = cmp.b === dex ? null : cmp.b; }
+      else cmp.b = dex;
+      if (cmp.a && cmp.b) openCmp();
+      else { paintTray(); toast('Ahora toca «⚖️ Comparar» en otro Pokémon (o abre el comparador y búscalo)'); }
+    }
+    function paintTray() {
+      const t = el && el.querySelector('.psg-cmp-tray');
+      if (!t) return;
+      const ra = cmp.a && getR(cmp.a), rb = cmp.b && getR(cmp.b);
+      t.classList.toggle('psg-hidden', !ra && !rb);
+      t.innerHTML = `⚖️ <b>${ra ? esc(ra.name) : '…'}</b> vs <b>${rb ? esc(rb.name) : '…'}</b>
+        <button type="button" class="psg-mini" data-tray="go">Abrir comparador</button><button type="button" class="psg-mini" data-tray="x">✕</button>`;
+    }
+    function closeCmp() { if (cel) cel.classList.add('psg-hidden'); paintTray(); }
+    function openCmp() {
+      if (!cmp.a) cmp.a = openDex || (rows[0] && rows[0].dex) || null;
+      if (!cmp.b) {
+        const own = [...ownedSet()].filter(d => d !== cmp.a && G.DEX_BY[d]);
+        cmp.b = own.length ? own.map(getR).filter(Boolean).sort((x, y) => y.power - x.power)[0].dex : null;
+      }
+      if (!cel) buildCmp();
+      cel.classList.remove('psg-hidden');
+      paintCmp();
+    }
+    function buildCmp() {
+      cel = document.createElement('div');
+      cel.id = 'psg-cmp';
+      cel.setAttribute('translate', 'no');
+      cel.innerHTML = `<div class="psg-cmp-head"><b>⚖️ Comparador</b>
+          <div class="psg-seg"><button type="button" data-mode="fab">📊 De fábrica</button><button type="button" data-mode="nat">🧬 Con su naturaleza</button></div>
+          <button type="button" class="psg-an-x" aria-label="Cerrar">✕</button></div>
+        <div class="psg-cmp-pick"><input class="psg-cmp-in" data-side="a" list="psg-cmp-dl" autocomplete="off" placeholder="Pokémon 1 (nombre o nº)">
+          <button type="button" class="psg-mini" data-swap="1" title="Cambiar de lado">⇄</button>
+          <input class="psg-cmp-in" data-side="b" list="psg-cmp-dl" autocomplete="off" placeholder="Pokémon 2 (nombre o nº)"></div>
+        <datalist id="psg-cmp-dl"></datalist>
+        <div class="psg-cmp-body"></div>`;
+      document.body.appendChild(cel);
+      cel.querySelector('#psg-cmp-dl').innerHTML = DEXL().map(p => `<option value="${esc(A.monName(+p.dex) || p.name)} #${p.dex}">`).join('');
+      cel.querySelector('.psg-an-x').addEventListener('click', closeCmp);
+      cel.addEventListener('click', e => {
+        const m = e.target.closest('[data-mode]');
+        if (m) { cmp.mode = m.dataset.mode; paintCmp(); return; }
+        if (e.target.closest('[data-swap]')) { const t = cmp.a; cmp.a = cmp.b; cmp.b = t; paintCmp(); }
+      });
+      cel.addEventListener('change', e => {
+        const inp = e.target.closest('.psg-cmp-in');
+        if (!inp) return;
+        const d = findDex(inp.value);
+        if (d) { cmp[inp.dataset.side] = d; paintCmp(); } else toast('No encuentro ese Pokémon');
+      });
+    }
+    /** «Giratina #487», «487», «#487» o el nombre → nº de Pokédex. */
+    function findDex(v) {
+      const t = String(v || '').trim(), m = t.match(/#?(\d+)\s*$/);
+      if (m && G.DEX_BY[+m[1]]) return +m[1];
+      const q = fold(t);
+      if (!q) return null;
+      const all = DEXL();
+      const hit = all.find(p => fold(A.monName(+p.dex)) === q || fold(p.name) === q)
+        || all.find(p => fold(A.monName(+p.dex)).startsWith(q) || fold(p.name).startsWith(q));
+      return hit ? +hit.dex : null;
+    }
+    const STAT_ROWS = [
+      ['hp', '❤️ Vida', 183, v => Math.round(v)], ['pa', '⚔ Ataque', 1.55, v => '×' + (+v).toFixed(2)],
+      ['sa', '✨ At. Esp.', 1.55, v => '×' + (+v).toFixed(2)], ['df', '🛡 Defensa', 160, v => Math.round(v)],
+      ['sd', '🛡 Def. Esp.', 160, v => Math.round(v)], ['spd', '👟 Velocidad', 137, v => Math.round(v)]
+    ];
+    /** Fila con dos barras enfrentadas: la de la izquierda crece hacia la izquierda. */
+    function duel(label, va, vb, max, fmt, ra, rb, opt) {
+      opt = opt || {};
+      const lower = !!opt.lowerBetter, eq = Math.abs(va - vb) <= Math.max(Math.abs(va), Math.abs(vb)) * 0.005;
+      const aWin = !eq && (lower ? va < vb : va > vb), bWin = !eq && !aWin;
+      const m = max || Math.max(va, vb, 1e-9);
+      const w = v => Math.max(2, Math.min(100, 100 * v / m));
+      const d = (x, y) => (y ? ' <small>+' + Math.round(100 * (lower ? y / x - 1 : x / y - 1)) + ' %</small>' : '');
+      return `<div class="psg-duel${aWin ? ' a' : bWin ? ' b' : ''}">
+        <span class="va">${fmt(va)}${aWin ? d(va, vb) : ''}</span>
+        <div class="bar l"><i style="width:${w(va)}%"></i></div>
+        <span class="lab">${label}${opt.rk && opt.rk(ra) ? `<small>🏆 ${opt.rk(ra)} · ${opt.rk(rb)}</small>` : ''}</span>
+        <div class="bar r"><i style="width:${w(vb)}%"></i></div>
+        <span class="vb">${fmt(vb)}${bWin ? d(vb, va) : ''}</span></div>`;
+    }
+    const ATK_TYPES = () => Object.keys((G.U && G.U.TYPE_NAME) || {});
+    const multOf = (t, types) => { try { return +G.Types.mult(t, toPage(types)) || 1; } catch (e) { return 1; } };
+    function paintCmp() {
+      const ra = cmp.a && getR(cmp.a), rb = cmp.b && getR(cmp.b);
+      cel.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === cmp.mode));
+      const ia = cel.querySelector('[data-side="a"]'), ib = cel.querySelector('[data-side="b"]');
+      ia.value = ra ? (A.monName(ra.dex) || ra.name) + ' #' + ra.dex : '';
+      ib.value = rb ? (A.monName(rb.dex) || rb.name) + ' #' + rb.dex : '';
+      const body = cel.querySelector('.psg-cmp-body');
+      if (!ra || !rb) { body.innerHTML = '<p class="psg-an-help">Elige dos Pokémon arriba (escribe su nombre o número).</p>'; return; }
+      const st = r => (cmp.mode === 'nat' ? r.mon : r.base);
+      const sa = st(ra), sb = st(rb);
+      const rkS = k => r => (cmp.mode === 'fab' && ranks && ranks[k] ? '#' + ranks[k].get(r.dex) : '');
+      const card = r => {
+        let types = '';
+        try { types = String(G.UI.typeChips(toPage(r.types))); } catch (e) { types = r.types.map(chip).join(''); }
+        return `<div class="psg-cmp-card"><div class="psg-stage-slot" data-dex="${r.dex}"></div>
+          <small>Nº ${String(r.dex).padStart(3, '0')} · ${GEN_NAMES[r.gen - 1] || ''}${r.owned ? '' : ' · no lo tienes'}</small>
+          <b class="nm">${esc(r.name)}</b>
+          <small class="rar r${r.rarity}">${'★'.repeat(r.rarity)} ${RARITY_NAME[r.rarity] || ''}${r.cat !== 'normal' ? ' · ' + CAT_NAME[r.cat] : ''}</small>
+          <div class="tp">${types}</div>
+          <small>${A.natName(r.nat)} · ${esc(r.abil.name)}</small></div>`;
+      };
+      // Stats del juego
+      let stats = STAT_ROWS.map(([k, l, mx, f]) => duel(l, +sa[k] || 0, +sb[k] || 0, mx, f, ra, rb, { rk: cmp.mode === 'fab' ? rkS(k) : null })).join('');
+      if (cmp.mode === 'fab') stats += duel('Σ Total base', +ra.base.bst || 0, +rb.base.bst || 0, 720, v => Math.round(v), ra, rb, { rk: rkS('bst') });
+      // En partida (analizador)
+      const ca = ra.combo, cb = rb.combo, last = c => c.chain[c.chain.length - 1];
+      const nf = v => Math.round(v);
+      const play = [
+        duel('⚔ Potencia (plan fusionado)', ra.power, rb.power, 0, nf, ra, rb, { rk: r => (ranks ? '#' + ranks.power.get(r.dex) : '') }),
+        duel('⚔ Sin vínculos', ra.solo, rb.solo, 0, nf, ra, rb),
+        duel('🛡 Aguante', ra.tough, rb.tough, 0, nf, ra, rb, { rk: r => (ranks ? '#' + ranks.tough.get(r.dex) : '') }),
+        duel('🌟 Potencial (combinación)', ca.potential.p, cb.potential.p, 0, nf, ra, rb, { rk: r => (ranks ? '#' + ranks.pot.get(r.dex) : '') }),
+        duel('📈 Mejora con la combinación', last(ca).p / ca.chain[0].p, last(cb).p / cb.chain[0].p, 0, v => '×' + v.toFixed(1), ra, rb)
+      ].join('');
+      // Debilidades y resistencias (tabla de tipos del juego: ×1,6 / ×0,6 / ×0,3, con dos tipos se multiplican)
+      const trs = ATK_TYPES().map(t => [t, multOf(t, ra.types), multOf(t, rb.types)]).filter(([, x, y]) => Math.abs(x - 1) > 0.01 || Math.abs(y - 1) > 0.01);
+      const mc = v => `<span class="psg-mult ${v > 1.01 ? 'bad' : v < 0.99 ? 'good' : ''}">${Math.abs(v - 1) < 0.01 ? '—' : '×' + v.toFixed(v < 1 ? 2 : 1)}</span>`;
+      const weak = trs.length ? `<div class="psg-types">${trs.map(([t, x, y]) => `<div class="psg-tcell">${mc(x)}${chip(t)}${mc(y)}</div>`).join('')}</div>` : '';
+      const cnt = (r, i) => { const l = trs.map(x => x[i]); return `${l.filter(v => v > 1.01).length} debilidades · ${l.filter(v => v < 0.99).length} resistencias`; };
+      // Plan y objeto
+      const plan = r => r.plan.map(m => { let ic = ''; try { ic = String(G.Icons.html('move:' + m.id, 22)); } catch (e) { /* nada */ }
+        return `<span class="psg-mv" title="${esc(m.name)}">${ic || chip(m.type)}<small>${esc(m.name)}</small></span>`; }).join('');
+      // Resumen: dónde gana cada uno
+      const keys = STAT_ROWS.map(([k, l]) => [l, +sa[k] || 0, +sb[k] || 0]).concat([['⚔ Potencia', ra.power, rb.power], ['🛡 Aguante', ra.tough, rb.tough], ['🌟 Potencial', ca.potential.p, cb.potential.p]]);
+      const better = (x, y) => keys.filter(k => k[x] > k[y] * 1.005).map(k => k[0].replace(/^\S+\s/, '') + ' (+' + Math.round(100 * (k[x] / k[y] - 1)) + ' %)');
+      const winA = better(1, 2), winB = better(2, 1);
+      body.innerHTML = `<div class="psg-cmp-cards">${card(ra)}<div class="psg-vs">VS</div>${card(rb)}</div>
+        <div class="psg-cmp-sum"><p class="a">▲ <b>${esc(ra.name)}</b> es mejor en: ${winA.length ? winA.join(', ') : 'nada'}</p>
+          <p class="b">▲ <b>${esc(rb.name)}</b> es mejor en: ${winB.length ? winB.join(', ') : 'nada'}</p></div>
+        <h4>Stats del juego ${cmp.mode === 'fab' ? '<small>(de fábrica, 🏆 puesto en el juego)</small>' : '<small>(con su naturaleza, como en tu Pokédex)</small>'}</h4>${stats}
+        <h4>En partida <small>(analizador)</small></h4>${play}
+        <h4>Debilidades y resistencias <small>(daño que recibe de cada tipo)</small></h4>
+        <p class="psg-cmp-2"><small>${esc(ra.name)}: ${cnt(ra, 1)}</small><small>${esc(rb.name)}: ${cnt(rb, 2)}</small></p>${weak}
+        <h4>Plan de 4 y objeto</h4>
+        <div class="psg-cmp-2"><div><div class="psg-mvs">${plan(ra)}</div><small>🎒 ${esc(ra.items[0] ? ra.items[0].name : '—')} · pega con ${ra.side === 'special' ? 'especiales' : 'físicos'}</small></div>
+          <div><div class="psg-mvs">${plan(rb)}</div><small>🎒 ${esc(rb.items[0] ? rb.items[0].name : '—')} · pega con ${rb.side === 'special' ? 'especiales' : 'físicos'}</small></div></div>`;
+      // Sprites animados con el dibujante del propio juego (como en su Pokédex).
+      body.querySelectorAll('.psg-stage-slot').forEach(slot => {
+        const dex = +slot.dataset.dex, cv = document.createElement('canvas');
+        cv.width = 150; cv.height = 128; cv.className = 'stage';
+        cv.style.setProperty('--stage-c', (G.U.TYPE_COLOR || {})[(G.DEX_BY[dex].types || [])[0]] || '#5b83d6');
+        slot.appendChild(cv);
+        try { G.UI.sprite(cv, dex, share({ lively: true, spin: true, scale: 3, hero: true })); } catch (e) { console.warn('[PSG] sprite', e); }
+      });
+      paintTray();
+    }
+
+    const cssC = document.createElement('style');
+    cssC.textContent = `
+      #psg-an .psg-an-cmpb{font-family:inherit;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid #8fd3ff;background:#8fd3ff22;color:#cfefff;cursor:pointer}
+      #psg-an .psg-mini.psg-big{font-size:13px;padding:6px 12px;margin:0}
+      #psg-an .psg-cmp-tray{position:sticky;bottom:-40px;margin-top:8px;padding:8px 10px;border-radius:12px;background:#132449;border:1px solid #8fd3ff66;font-size:13px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+      #psg-an .psg-cmp-tray.psg-hidden,#psg-cmp.psg-hidden{display:none}
+      #psg-cmp{position:fixed;inset:0;z-index:9001;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 12px 40px;background:#0a0f20;color:#e8eefc;font-family:inherit;font-size:13px;line-height:1.3}
+      #psg-cmp .psg-cmp-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;font-size:16px;position:sticky;top:-10px;background:#0a0f20;padding:6px 0;z-index:2}
+      #psg-cmp .psg-cmp-head .psg-seg{order:3;width:100%;justify-content:center}
+      #psg-cmp .psg-seg button{flex:1}
+      #psg-cmp .psg-cmp-head>b{flex:1}
+      #psg-cmp .psg-an-x{font-size:20px;background:none;border:0;color:#fff;padding:4px 10px;cursor:pointer}
+      #psg-cmp .psg-seg{display:flex;border:1px solid #ffffff33;border-radius:999px;overflow:hidden}
+      #psg-cmp .psg-seg button{font-family:inherit;font-size:11px;padding:5px 8px;border:0;background:none;color:#cfd8ea;cursor:pointer}
+      #psg-cmp .psg-seg button.on{background:#ffd23f;color:#2a2000}
+      #psg-cmp .psg-cmp-pick{display:flex;gap:6px;align-items:center;margin:4px 0 8px}
+      #psg-cmp .psg-cmp-in{flex:1;min-width:0;font-family:inherit;font-size:13px;padding:7px 9px;border-radius:8px;border:1px solid #ffffff33;background:#0b1328;color:#fff}
+      #psg-cmp .psg-mini{font-family:inherit;font-size:13px;padding:4px 9px;border-radius:999px;border:1px solid #ffd23f88;background:none;color:#ffd23f;cursor:pointer}
+      #psg-cmp .psg-cmp-cards{display:grid;grid-template-columns:1fr 28px 1fr;align-items:center;gap:4px}
+      #psg-cmp .psg-cmp-card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;min-width:0}
+      #psg-cmp .psg-cmp-card canvas.stage{width:138px;height:118px;margin:0 auto 4px;max-width:100%}
+      #psg-cmp .psg-cmp-card .nm{font-size:16px}
+      #psg-cmp .psg-cmp-card small{color:#9fb1c9;font-size:11px}
+      #psg-cmp .psg-cmp-card .rar.r5{color:#ffcb3d}#psg-cmp .psg-cmp-card .rar.r4{color:#c47bff}#psg-cmp .psg-cmp-card .rar.r2{color:#5fe08a}
+      #psg-cmp .psg-cmp-card .tp{margin:2px 0}
+      #psg-cmp .psg-vs{font-weight:800;color:#ffd23f;text-align:center}
+      #psg-cmp h4{margin:12px 0 4px;font-size:13px;color:#ffd23f}
+      #psg-cmp h4 small{color:#9fb1c9;font-weight:400}
+      #psg-cmp .psg-cmp-sum{background:#ffffff0a;border-radius:10px;padding:4px 10px;margin:8px 0}
+      #psg-cmp .psg-cmp-sum p{margin:4px 0;font-size:12px}
+      #psg-cmp .psg-cmp-sum p.a b{color:#8fd3ff}#psg-cmp .psg-cmp-sum p.b b{color:#ff9fd0}
+      #psg-cmp .psg-duel{display:grid;grid-template-columns:62px 1fr 104px 1fr 62px;gap:5px;align-items:center;margin:4px 0}
+      #psg-cmp .psg-duel .va{text-align:right}#psg-cmp .psg-duel .vb{text-align:left}
+      #psg-cmp .psg-duel .va,#psg-cmp .psg-duel .vb{font-variant-numeric:tabular-nums;color:#cfd8ea;font-size:12px}
+      #psg-cmp .psg-duel small{display:block;font-size:10px;color:#7be495}
+      #psg-cmp .psg-duel .lab{text-align:center;font-size:11px;color:#dfe7f7}
+      #psg-cmp .psg-duel .lab small{color:#9fb1c9}
+      #psg-cmp .psg-duel .bar{height:9px;background:rgba(0,0,0,.4);border-radius:6px;overflow:hidden;display:flex}
+      #psg-cmp .psg-duel .bar.l{justify-content:flex-end}
+      #psg-cmp .psg-duel .bar i{display:block;height:100%;background:#5e6f92;border-radius:6px}
+      #psg-cmp .psg-duel.a .bar.l i{background:#8fd3ff}#psg-cmp .psg-duel.b .bar.r i{background:#ff9fd0}
+      #psg-cmp .psg-duel.a .va,#psg-cmp .psg-duel.b .vb{color:#fff;font-weight:700}
+      #psg-cmp .psg-types{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px}
+      #psg-cmp .psg-tcell{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;text-align:center;background:#ffffff08;border-radius:8px;padding:3px 4px}
+      #psg-cmp .psg-mult{font-size:12px;font-weight:700;color:#9fb1c9}
+      #psg-cmp .psg-mult.bad{color:#ff8a8a}#psg-cmp .psg-mult.good{color:#7be495}
+      #psg-cmp .psg-type{display:inline-block;padding:1px 6px;border-radius:6px;font-size:11px;color:#fff;text-shadow:0 1px 1px #0008}
+      #psg-cmp .psg-cmp-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      #psg-cmp .psg-mvs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}
+      #psg-cmp .psg-mv{display:flex;flex-direction:column;align-items:center;width:62px;text-align:center}
+      #psg-cmp .psg-mv small{font-size:9px;color:#cfd8ea;line-height:1.1}
+      @media (max-width:420px){#psg-cmp .psg-duel{grid-template-columns:52px 1fr 86px 1fr 52px;gap:3px}#psg-cmp .psg-cmp-card canvas.stage{width:120px;height:102px}}
+    `;
+    (document.head || document.documentElement).appendChild(cssC);
+
     return { open, close, analyze: A.analyze, togglePin: A.togglePin, resetPins: A.resetPins,
-             exportSave: exportText };
+             exportSave: exportText, compare: (a, b) => { if (!el || el.classList.contains('psg-hidden')) open(); cmp.a = a; cmp.b = b; openCmp(); } };
   }
 
   function install(G) {

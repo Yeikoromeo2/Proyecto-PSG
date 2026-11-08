@@ -19,6 +19,15 @@ fusionado), *Más potencial* (combinación ideal), *Más fuertes de fábrica*, *
 combinación*, *Más potentes sin vínculos*, *Más aguante*, *Potencia + aguante*, *Naturaleza o
 habilidad a revisar*, *Más usados*, *Nº de Pokédex* o *Rareza*. Tocando uno ves:
 
+- **⚖️ Comparador** (desde 0.9.6; botón *⚖️ Comparar* arriba o en la ficha de cada Pokémon): dos
+  Pokémon cara a cara con el mismo aspecto que la Pokédex del juego (su recuadro con el **sprite
+  animado**, sus chips de tipo y su rareza). Barras enfrentadas en cada stat del juego (vida, ataque,
+  at. esp., defensas, velocidad y total, *de fábrica* o *con su naturaleza*) y en partida (potencia
+  con y sin vínculos, aguante, potencial y cuánto mejora con la combinación), con el ganador
+  resaltado, cuánto le saca y su puesto 🏆. Arriba, un resumen de en qué es mejor cada uno. Debajo,
+  **debilidades y resistencias** con la tabla de tipos del juego (×1,6 / ×0,6 / ×0,3, multiplicadas
+  con dos tipos) y su plan de 4 con el objeto recomendado. Se cambia cada lado escribiendo el nombre
+  o el número (también Pokémon que no tienes).
 - **Stats de fábrica** 📊: los del juego tal cual (vida, velocidad, multiplicador de daño físico y
   especial, defensas y total base), sin naturaleza ni mejoras, con su puesto entre los 966.
 - **De fábrica → combinación** 🧪: parte de cómo viene (= 100: sin naturaleza, su 1.ª habilidad,

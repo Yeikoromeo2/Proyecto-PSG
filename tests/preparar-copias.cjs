@@ -63,8 +63,10 @@ if (REAL) {
     const BASE = 'https://pokesurvivor.com/';
     const html = (await get(BASE)).toString('utf8');
     const refs = [...html.matchAll(/(?:src|href)="((?:js|css)\/[^"#]+)"/g)].map(m => m[1]);
-    const d = copy('real', ['index.html', ...refs.map(r => r.split('?')[0])]);
+    const d = copy('real', ['index.html', 'version.json', ...refs.map(r => r.split('?')[0])]);
     fs.writeFileSync(path.join(d, 'index.html'), html);
+    // La versión publicada: con una vieja, el juego cree que hay otra nueva y recarga la página al minuto.
+    fs.writeFileSync(path.join(d, 'version.json'), await get(BASE + 'version.json'));
     for (const r of refs) {
       const file = path.join(d, r.split('?')[0]);
       fs.mkdirSync(path.dirname(file), { recursive: true });
