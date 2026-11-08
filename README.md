@@ -7,7 +7,7 @@ un **analizador de tu colección** y una **ayuda con las cartas** que salen al s
 
 En el menú principal aparece el botón **⭐ Analizador** (junto a *Pokémon*). Abre una
 lista con todos tus Pokémon, cada uno con dos barras (⚔ potencia y 🛡 aguante, de 0 a 100
-respecto al mejor de tu colección), ordenable por *Más potentes*, *Más aguante*,
+respecto al mejor de tu colección), ordenable por *Más potentes* (plan fusionado), *Más potentes sin vínculos*, *Más aguante*,
 *Potencia + aguante*, *Naturaleza o habilidad a revisar*, *Más usados* o *Nº de Pokédex*,
 y con buscador. Tocando uno ves:
 
@@ -19,9 +19,25 @@ y con buscador. Tocando uno ves:
 - **Aguante**: su vida (con la de tus mejoras), cuánto más o menos daño físico y especial
   recibe según su Defensa y Defensa Especial (el juego lo deja entre −22 % y +25 %), su
   velocidad respecto a la media y lo que suman tus mejoras compradas (Coraza, regeneración…).
-- **Plan de 4 ataques**: los que más daño le darían ya evolucionados, con su **combo de
-  evolución** (ataque al máximo + la mejora de stat que pide → «Ataque +») y las mejoras de
-  stat que conviene coger en la partida.
+- **Plan de 4 (para fusionar)**: el grupo de 4 movimientos que más rinde **lanzado a la vez**
+  con vínculos, ya evolucionado, con su **combo de evolución** (ataque al máximo + la mejora de
+  stat que pide → «Ataque +») y las mejoras de stat que conviene coger en la partida.
+  - **Potenciadores** (desde 0.9.4): Maquinación (+At. Esp.), Danza Espada / Danza Dragón (+Ataque),
+    Agilidad (+Velocidad), Fortaleza (+Defensa) y Acua Aro (+regeneración) entran en el plan si
+    rinden más que un ataque. Se calculan como en el juego: se relanzan cada ~0,85 s y cada carga dura
+    7 s, así que en el hueco que dispara llegan a su máximo de cargas (al nivel máximo, Maquinación:
+    7 cargas de 25 % = +178 % a los ataques especiales). Dos del mismo stat no se suman y como mucho
+    van 2 (el juego no ofrece más). **Sólo funcionan en el mismo hueco que los ataques**: sin vínculo,
+    en otro hueco, se apagan al cambiar.
+  - **Vínculos**: sin ninguno sólo dispara el hueco activo (un movimiento). El analizador da el
+    **orden de los vínculos** (el 1.º une los dos que más rinden juntos, p. ej. un ataque especial +
+    Maquinación) y cuánto daño tienes con cada uno. En partida, la pantalla de vínculo marca cuál
+    elegir y, en *Automático*, lo elige sola (en dos pasos si hay que unir dos sueltos).
+  - Según el estilo (⚖️/🛡️/⚔️), el plan pesa más o menos el aguante (Fortaleza, Agilidad, Acua Aro).
+- **Objetos** 🎒: los 11 objetos del juego ordenados para ese Pokémon y estilo (Cinta Elección,
+  Vidasfera, Garra Rápida, Chaleco Asalto, Restos, Huevo Suerte…), con lo que suben de daño y
+  aguante. Cuando te sale un objeto llevando otro, el ayudante marca con cuál quedarte (y en
+  *Automático* lo elige).
 - **Copia de seguridad** (botón **⇄ Copia de partida** del menú principal, o **⇄ Copia** arriba en el
   Analizador): exporta **tu progreso** (Pokémon, mejoras, naturalezas, MT…) a un archivo de respaldo.
   Sólo lee: no cambia nada. **No hay importar**: el juego guarda la partida en su servidor y quita los
@@ -32,13 +48,16 @@ y con buscador. Tocando uno ves:
   con los mejores calculados. *↺ Volver al calculado* lo deshace. Se guarda en este navegador,
   por cuenta y por Pokémon, y **las cartas de nivel siguen ese plan**.
 - **Movimiento inicial**: si el que tiene está en su plan o cuál le iría mejor.
-- **MT** que entrarían en su plan, y la tabla con todos sus ataques posibles.
+- **MT** que entrarían en su plan (si el grupo fusionado rinde al menos un 3 % más), y la tabla
+  con todos sus ataques y potenciadores posibles.
 
 La **potencia** es un índice aproximado (daño × proyectiles ÷ recarga, con extra para los
 ataques de área, su naturaleza, su habilidad, el bonus de Pokémon de un solo tipo y tus
-mejoras compradas de ataque, recarga y crítico). El **aguante** es su vida entre el daño
-medio que recibe (mitad físico, mitad especial), más la regeneración de tus mejoras, ajustado
-por su velocidad (raíz de su velocidad entre la media) y +8 % si su habilidad es defensiva.
+mejoras compradas de ataque, recarga y crítico), sumado sobre su plan de 4 fusionado y
+multiplicado por sus potenciadores. El **aguante** es su vida entre el daño medio que recibe
+(mitad físico, mitad especial, con algo de Coraza de la partida y lo que sumen Fortaleza y tus
+mejoras, tope 80 % como en el juego), más la regeneración (mejoras y Acua Aro), ajustado por su
+velocidad (raíz de su velocidad entre la media, con Agilidad) y +8 % si su habilidad es defensiva.
 Los dos sirven para comparar tus Pokémon, no son números exactos de la partida.
 
 ## Ayuda con las cartas de nivel
@@ -168,10 +187,11 @@ Heurística sencilla, pensada para ajustarla con la experiencia:
 | Potencia / Reflejos | 300 / 280 | Daño y recarga para todos tus ataques |
 | Vigor / Coraza / Síntesis | 170 / 170 / 150 | +160 si tienes menos de la mitad de vida |
 | Aprendizaje | 230 hasta nivel 10, luego 80 | |
-| Potenciadores (Danza Espada…) | 120–230 | No hacen daño por sí solos |
+| Potenciadores (Danza Espada…) | 120–230 | Sólo sirven fusionados en el hueco de tus ataques |
+| Mejorar un potenciador | 260 (540 si está en el plan) | +1 carga / +40 % de potencia |
 | **🛡️ Aguante** | Vigor/Coraza +130, Síntesis +120, Carrera +40, Potencia −40, Reflejos −20, mejorar ataque −20 | Baya Zidra: 900 con < 50 % de vida, 260 con < 80 % |
 | **⚔️ Daño** | Potencia +120, Reflejos +100, mejorar ataque +60, Vigor/Coraza −70, Síntesis −60 | Baya Zidra: 900 con < 25 %, 260 con < 45 % |
-| **Con Plan ON:** ataque nuevo del plan | +250 | (potenciador fijado en el plan: 480) |
+| **Con Plan ON:** ataque nuevo del plan | +250 | (potenciador del plan: 480) |
 | **Con Plan ON:** mejorar un ataque del plan | +100 | |
 | **Con Plan ON:** mejora de stat que pide una evolución del plan | +120 | Sólo hasta cogerla una vez |
 | **Con Plan ON:** ataque o potenciador de fuera que quita hueco al plan | hasta −200 | Según lo peor que sea; la mitad con menos de 2 ataques |

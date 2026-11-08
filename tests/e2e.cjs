@@ -112,7 +112,21 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   console.log('       Pikachu → mejoras para evolucionar:', an.pika.evo.join(', '), '· habilidad:', an.pika.ab);
   await page.click('#psg-an .psg-row[data-dex="25"]');
   const det = await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-det h4')].map(h => h.textContent.trim()));
-  check(det.length === 4, 'detalle con naturaleza, habilidad, aguante y plan: ' + det.join(' | '));
+  check(det.length === 5, 'detalle con naturaleza, habilidad, aguante, objetos y plan: ' + det.join(' | '));
+  // Potenciadores, vínculos y objetos en el plan (Pikachu pega con especiales: Maquinación le sube todo).
+  const fx = await page.evaluate(() => {
+    const r = window.__psgMod.analyzer.analyze(25);
+    const plain = r.plan.filter(m => !m.buff).reduce((a, m) => a + m.score, 0) * r.perkK;
+    return { buffs: r.plan.filter(m => m.buff).map(m => m.id), bonds: r.bonds.length, steps: r.steps.map(Math.round),
+      power: Math.round(r.power), plain: Math.round(plain), solo: Math.round(r.solo), items: r.items.map(i => i.id),
+      top: r.items[0].name, html: document.querySelector('#psg-an .psg-det').textContent };
+  });
+  check(fx.buffs.includes('nasty-plot'), 'el plan de Pikachu (especial) lleva Maquinación: ' + fx.buffs.join(', '));
+  check(fx.power > fx.plain, `Maquinación fusionada multiplica el daño del grupo (${fx.power} > ${fx.plain} sin ella)`);
+  check(fx.bonds === 4 && fx.steps.every((v, i) => !i || v >= fx.steps[i - 1]) && fx.solo < fx.power,
+    `orden de vínculos y daño con cada uno (${fx.steps.join(' → ')})`);
+  check(fx.items.length === 11 && /Vínculos/.test(fx.html) && /Sólo funciona en el MISMO hueco/.test(fx.html) && /Objeto que más le conviene/.test(fx.html),
+    'el detalle explica vínculos, potenciadores y objetos (mejor objeto: ' + fx.top + ')');
   const tough = await page.evaluate(() => {
     const A = window.__psgMod.analyzer;
     const sel = document.querySelector('#psg-an select');
@@ -131,7 +145,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     await page.screenshot({ path: path.join(SHOTS, 'analizador.png') });
     await page.setViewportSize({ width: 412, height: 915 });
     await page.screenshot({ path: path.join(SHOTS, 'analizador-vertical.png') });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[3].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[4].scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-plan.png') });
     await page.setViewportSize({ width: 915, height: 412 });
@@ -147,7 +161,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(/fijado por ti/.test(pinned.head) && pinned.allOpen, 'el plan se marca como «fijado por ti» y la tabla sigue abierta');
   if (SHOTS) {
     await page.setViewportSize({ width: 412, height: 915 });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[3].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[4].scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-fijado.png') });
     await page.setViewportSize({ width: 915, height: 412 });
@@ -256,6 +270,39 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(JSON.stringify(before) !== JSON.stringify(after), 'la carta elegida se aplicó al Pokémon');
   await page.click('body').catch(() => {});
   await page.evaluate(() => { window.__psgMod.cfg.auto = false; });
+
+  // Vínculo: marca los dos que pide el plan y, en «Automático», los fusiona solo.
+  const bond = await page.evaluate(() => {
+    const pl = G.Game.player, plan = window.__psgMod.plan();
+    for (const id of plan.ids) if (!pl.hasMove(id)) pl.addMove(id);
+    window.__psgMod.cfg.auto = true;
+    pl.bonds = 1;
+    G.Game.offerBond();
+    return { want: plan.bonds.slice(0, 2).filter(id => pl.hasMove(id)), learned: pl.moves.map(m => m.id) };
+  });
+  await page.waitForFunction(() => document.querySelector('#bond-cards .card.psg-best .psg-badge'), null, { timeout: 5000 })
+    .then(() => check(true, 'pantalla de vínculo: el ayudante marca el recomendado'),
+          () => check(false, 'pantalla de vínculo: no se marcó ninguno'));
+  const bondBadge = await page.evaluate(() => (document.querySelector('#bond-cards .psg-badge') || {}).textContent || '');
+  await page.waitForFunction(() => document.getElementById('scr-bond').classList.contains('hidden'), null, { timeout: 8000 }).catch(() => {});
+  const fused = await page.evaluate(() => {
+    const g = G.Game.player.slots.find(s => s.length > 1);
+    return g ? Array.prototype.map.call(g, m => m.id).sort().join(',') : '';
+  });
+  check(fused && (bond.want.length < 2 || fused === bond.want.slice().sort().join(',')),
+    `modo automático: fusionó los del plan (${fused || 'nada'}; plan: ${bond.want.join(',')})`);
+  console.log('       ' + bondBadge);
+
+  // Objeto: con cuál quedarse (Cinta Elección mejor que Moneda Amuleto para pelear).
+  await page.evaluate(() => { window.__psgMod.cfg.auto = false; window.__psgItem = null; G.RunUI.showItemChoice('amuletcoin', 'choiceband', id => { window.__psgItem = id; }); });
+  await page.waitForFunction(() => document.querySelector('#item-cards .card.psg-best .psg-badge'), null, { timeout: 5000 }).catch(() => {});
+  const itemBest = await page.evaluate(() => [...document.querySelectorAll('#item-cards .card')].findIndex(e => e.classList.contains('psg-best')));
+  check(itemBest === 1, 'objeto: recomienda cambiar a Cinta Elección');
+  await page.evaluate(() => { G.UI.hide('scr-item'); window.__psgMod.cfg.auto = true; G.RunUI.showItemChoice('amuletcoin', 'lifeorb', id => { window.__psgItem = id; }); });
+  await page.waitForFunction(() => window.__psgItem === 'lifeorb', null, { timeout: 5000 })
+    .then(() => check(true, 'objeto: en «Automático» se queda solo con el recomendado'),
+          () => check(false, 'objeto: no eligió solo'));
+  await page.evaluate(() => { window.__psgMod.cfg.auto = false; G.UI.hide('scr-item'); });
 
   // 3) Modo libre: ofrece las mejores cartas posibles y marca la partida.
   await openCards();

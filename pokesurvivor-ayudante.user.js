@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.3
+// @version      0.9.4
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -20,6 +20,8 @@
  *      G.LevelUp.offer      las 3 cartas de cada subida de nivel
  *      G.RunUI.showLevelUp  la pantalla de cartas (para poder volver a pintarla)
  *      G.Ranking.submit*    la subida al ranking (para bloquearla en modo libre)
+ *      G.RunUI.showBond / showItemChoice  vínculo y objeto: marca el recomendado (y en
+ *                           «Automático» lo elige)
  *
  *  - Selector: puntúa las cartas ofrecidas, marca la mejor con el motivo y, en
  *    modo «Automático», la elige sola tras un instante. Con «Plan: ON» sigue el
@@ -37,7 +39,9 @@
  *
  *  - Analizador de colección: botón «Analizador PSG» en el menú principal.
  *    Para cada Pokémon tuyo: potencia y aguante, si su naturaleza y su habilidad le van bien,
- *    propone un plan de 4 ataques con sus combos de evolución, MT y movimiento inicial.
+ *    propone un plan de 4 para fusionar con vínculos (ataques + potenciadores como Maquinación,
+ *    que sólo valen en el mismo hueco), el orden de los vínculos, el objeto que más le conviene,
+ *    sus combos de evolución, MT y movimiento inicial.
  *    Incluye «Copia de seguridad»: exporta tu progreso a un archivo (sólo lectura; el juego no
  *    permite pasar Pokémon de una cuenta a otra a mano).
  *
@@ -54,7 +58,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.3';
+  const VERSION = '0.9.4';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -213,7 +217,11 @@
       const inPlan = !!(plan && plan.ids.includes(id));
       if (m) {
         const max = (m.def && m.def.maxLvl) || 5, left = Math.max(0, max - (m.lvl || 1));
-        if (m.kind === 'buff') { s -= 160; why = 'Mejora un potenciador'; }
+        if (m.kind === 'buff') {
+          // +1 carga / +40 % de potencia: en el plan (fusionado con tus ataques) rinde mucho; fuera, poco.
+          if (inPlan) { s += 20; why = 'Más cargas o potencia para tu ' + moveName(G, m); }
+          else { s -= 160; why = 'Mejora un potenciador fuera de tu plan'; }
+        }
         else if (evoTable[id]) {
           s += 120 + 40 * (max - left);
           why = left <= 1 ? 'Lo deja al máximo: listo para evolucionar'
@@ -245,7 +253,7 @@
       }
       if (d.kind === 'buff') {
         if (plan && plan.ids.includes(id)) return [480, 'De tu plan (n.º ' + (plan.ids.indexOf(id) + 1) + ') · potenciador'];
-        return [(dmgMoves >= 2 ? 230 : 120) - penalty, 'Potenciador: no hace daño por sí solo' + crowdWhy];
+        return [(dmgMoves >= 2 ? 230 : 120) - penalty, 'Potenciador: sólo sirve fusionado en el hueco de tus ataques' + crowdWhy];
       }
       let fit = 1;
       try { fit = G.Stats.fit(pl.mon, d.cat); } catch (e) { /* nada */ }
@@ -295,6 +303,7 @@
     Mons: o => isFn(o, 'natureOf') && isFn(o, 'monFor') && isFn(o, 'abilityOf'),
     AbilityFX: o => isFn(o, 'of') && has(o, 'FX'),
     Upgrades: o => isFn(o, 'perks') && has(o, 'LIST'),
+    Items: o => isFn(o, 'roll') && has(o, 'BY') && has(o, 'LIST'),
     U: o => isFn(o, 'clamp') && has(o, 'TYPE_NAME'),
     Icons: o => isFn(o, 'html') && isFn(o, 'canvas') && isFn(o, 'draw'),
     NATURES: o => !!safe(() => o.length === 25 && o[0].id === 'hardy'),
@@ -417,6 +426,29 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 1);
+  // Potenciadores: se relanzan cada ~0,85 s y cada carga dura 7 s, así que mientras estén en el
+  // hueco que dispara llegan a su máximo de cargas y se quedan ahí (los primeros segundos, menos).
+  const BUFF_RAMP = 0.9;
+  const BUFF_TXT = { patk: 'Ataque (físico)', satk: 'Ataque Especial', spd: 'Velocidad', def: 'Defensa', regen: 'Regeneración' };
+  // Reducción de daño típica de las cartas Coraza a mitad de partida (el juego la topa en 80 % con Fortaleza).
+  const RUN_RED = 0.18;
+  // Cuánto pesa el aguante frente al daño al elegir el plan y el objeto, según el estilo.
+  const STYLE_W = { dano: 0, equilibrado: 0.25, aguante: 0.6 };
+  // Objetos (uno por partida, en cofres y jefes): lo que cambian en daño (dmg), reducción (red),
+  // regeneración en % de la vida (regenPct), velocidad (spd) y aguante en general (tk).
+  const ITEM_FX = {
+    choiceband: { name: 'Cinta Elección', dmg: 1.4, note: '+40 % de daño, pero no puedes cambiar de hueco: perfecta con el plan fusionado' },
+    lifeorb: { name: 'Vidasfera', dmg: 1.3, tk: 0.85, note: '+30 % de daño; cada ataque te quita algo de vida' },
+    quickclaw: { name: 'Garra Rápida', dmg: 1.25, note: '−20 % de recarga (también rellena antes los potenciadores)' },
+    assaultvest: { name: 'Chaleco Asalto', red: 0.2, note: '+20 % de reducción de daño (suma con Coraza y Fortaleza)' },
+    leftovers: { name: 'Restos', regenPct: 0.015, note: '+1,5 % de su vida por segundo' },
+    choicescarf: { name: 'Pañuelo Elección', spd: 1.35, note: '+35 % de velocidad: esquivas más' },
+    shellbell: { name: 'Cascabel Concha', tk: 1.12, note: 'se cura con el daño que hace' },
+    focussash: { name: 'Banda Focus', tk: 1.1, note: 'aguanta un golpe mortal cada 60 s' },
+    rockyhelmet: { name: 'Casco Dentado', dmg: 1.03, tk: 1.03, note: 'daña a los que le pegan cuerpo a cuerpo' },
+    luckyegg: { name: 'Huevo Suerte', dmg: 1.06, tk: 1.06, note: '+30 % de experiencia: más cartas, sobre todo al principio' },
+    amuletcoin: { name: 'Moneda Amuleto', note: '+50 % de monedas al acabar: no ayuda a pelear' }
+  };
 
   function analyzerCore(G) {
     const save = () => G.DB && G.DB.save;
@@ -488,11 +520,35 @@
       const types = arr(base.types);
       const monoK = types.length === 1 && d.type === types[0] ? 1.2 : 1;   // Player.MONO_K
       const idx = moveIndex(inst) * monoK;
+      const buff = d.kind === 'buff';
       return {
-        id, d, inst, name: moveName(d), type: d.type, cat: d.cat, kind: d.kind, buff: d.kind === 'buff',
+        id, d, inst, name: moveName(d), type: d.type, cat: d.cat, kind: d.kind, buff,
         evo, evoName: evo && G.Moves.NEED_NAME ? G.Moves.NEED_NAME[evo] : '', fit: G.Stats.fit(mon, d.cat),
-        tm: taught.has(id), val: idx * statK, val0: idx * statK0, abilK: 1, score: 0, score0: 0
+        tm: taught.has(id), val: idx * statK, val0: idx * statK0, abilK: 1, score: 0, score0: 0,
+        // Potenciador: qué stat sube y cuánto con todas sus cargas (a su nivel máximo).
+        stat: buff ? d.stat : null, stacks: buff ? (+inst.stacks || 0) : 0, amount: buff ? (+inst.amount || 0) : 0,
+        bk: buff ? (+inst.stacks || 0) * (+inst.amount || 0) * BUFF_RAMP : 0
       };
+    }
+
+    /**
+     * Lo que hace un grupo de movimientos que se lanzan A LA VEZ (un hueco con vínculos):
+     * la suma de sus ataques, cada uno con el potenciador de su lado (Danza Espada/Danza Dragón
+     * a los físicos, Maquinación a los especiales), y lo que suben Fortaleza, Agilidad y Acua Aro.
+     * Dos potenciadores del mismo stat no se suman: vale el mayor (como Player.addBuff).
+     */
+    function groupFx(list) {
+      const k = { patk: 0, satk: 0, spd: 0, def: 0, regen: 0 };
+      for (const m of list) if (m.buff && m.stat in k) k[m.stat] = Math.max(k[m.stat], m.bk);
+      let dmg = 0;
+      for (const m of list) if (!m.buff) dmg += m.score * (1 + (m.cat === 'physical' ? k.patk : m.cat === 'special' ? k.satk : 0));
+      return { dmg, k };
+    }
+    /** Grupos de k elementos de una lista. */
+    function combos(list, k, out = [], start = 0, cur = []) {
+      if (cur.length === k) { out.push(cur.slice()); return out; }
+      for (let i = start; i <= list.length - (k - cur.length); i++) { cur.push(list[i]); combos(list, k, out, i + 1, cur); cur.pop(); }
+      return out;
     }
 
     function analyze(dex) {
@@ -505,13 +561,68 @@
       const abil = abilityInfo(ab.id, base, mon);
 
       const moves = arr(G.Moves.poolFor(base)).map(id => moveInfo(id, base, mon, taught)).filter(Boolean);
-      for (const m of moves) { m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK; m.score0 = m.val0 * m.abilK; }
+      for (const m of moves) { if (m.buff) continue; m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK; m.score0 = m.val0 * m.abilK; }
       const attacks = moves.filter(m => !m.buff).sort((a, b) => b.score - a.score);
-      const slotsN = 4;
-      // Los fijados a mano van primero; los huecos que queden, con los mejores calculados.
+      const slotsN = 4;          // Player.BOND_MAX: como mucho 4 movimientos en el hueco que se fusiona
+
+      // ---- aguante (con lo que sumen los potenciadores y el objeto) ----
+      // (las mejoras compradas se leen sin G.DB.upgradesOf, que crea la entrada en la partida si no existe)
+      const lv = (s && s.pupg && s.pupg[dex]) || {};
+      let perks = {};
+      try { perks = (G.Upgrades && G.Upgrades.perks(lv)) || {}; } catch (e) { /* nada */ }
+      const tP = G.Stats.taken(mon, 'physical'), tS = G.Stats.taken(mon, 'special');
+      const hpTot = (+mon.hp || 0) + (+perks.hp || 0);
+      const defAbil = abil.kind === 'defensiva';
+      function toughOf(k, it) {
+        k = k || {}; it = it || {};
+        const red = Math.min(0.8, (+perks.dmgReduce || 0) + RUN_RED + (k.def || 0) + (it.red || 0));
+        const takenAvg = ((tP + tS) / 2) * (1 - red);                      // enemigos físicos y especiales a medias
+        const spdV = (+mon.spd || 0) * (+perks.spdMul || 1) * (1 + (k.spd || 0)) * (it.spd || 1);
+        const spdK = Math.sqrt(Math.max(0.2, spdV / refSpd()));            // correr ayuda a esquivar
+        const regen = (+perks.regen || 0) + (k.regen || 0) + (it.regenPct || 0) * hpTot;
+        return (hpTot / Math.max(0.05, takenAvg) + regen * 20) * spdK * (defAbil ? 1.08 : 1) * (it.tk || 1);
+      }
+      const tough0 = toughOf();
+      const sw = STYLE_W[cfg.style] != null ? STYLE_W[cfg.style] : STYLE_W.equilibrado;
+      /** Valor de un grupo que se lanza a la vez: su daño, con un poco de aguante según el estilo. */
+      const objOf = list => { const f = groupFx(list); return f.dmg * Math.pow(toughOf(f.k) / tough0, sw); };
+
+      // ---- plan: el grupo de 4 que vas a fusionar con vínculos ----
+      // Los fijados a mano van siempre; el resto, la mejor combinación de ataques y potenciadores
+      // (como mucho 2 potenciadores: el juego no ofrece más).
       const pinned = pinsOf(dex).map(id => moves.find(m => m.id === id)).filter(Boolean);
       pinned.forEach(m => { m.pinned = true; });
-      const plan = pinned.concat(attacks.filter(m => !m.pinned).slice(0, Math.max(0, slotsN - pinned.length)));
+      const cand = attacks.filter(m => !m.pinned).slice(0, 8).concat(moves.filter(m => m.buff && !m.pinned));
+      const freeN = Math.min(Math.max(0, slotsN - pinned.length), cand.length);
+      let plan = pinned.slice(), bestV = -1;
+      for (const c of combos(cand, freeN)) {
+        const list = pinned.concat(c);
+        if (list.filter(m => m.buff).length > 2 || !list.some(m => !m.buff)) continue;
+        const v = objOf(list);
+        if (v > bestV) { bestV = v; plan = list; }
+      }
+      // Orden de los vínculos: el 1.º une los dos que más rinden juntos; cada uno siguiente, el que más suma.
+      const bonds = [];
+      if (plan.length >= 2) {
+        let pair = [plan[0], plan[1]], pv = -1;
+        for (const c of combos(plan, 2)) { const v = objOf(c); if (v > pv) { pv = v; pair = c; } }
+        bonds.push(...pair);
+        const rest = plan.filter(m => !pair.includes(m));
+        while (rest.length) {
+          let bi = 0, bv = -1;
+          rest.forEach((m, i) => { const v = objOf(bonds.concat(m)); if (v > bv) { bv = v; bi = i; } });
+          bonds.push(rest.splice(bi, 1)[0]);
+        }
+      } else bonds.push(...plan);
+      // Se enseña en ese orden (los fijados, primero).
+      plan = plan.filter(m => m.pinned).concat(bonds.filter(m => !m.pinned));
+      const planFx = groupFx(plan);
+      // Lo que aporta cada uno al grupo (lo que se perdería sin él): así se comparan ataques y potenciadores.
+      for (const m of plan) m.gain = Math.max(0, objOf(plan) - objOf(plan.filter(x => x !== m)));
+      // Daño por número de vínculos: sin ninguno sólo dispara el hueco activo (un movimiento).
+      const soloBest = attacks.length ? attacks[0] : null;
+      const steps = [soloBest ? soloBest.score : 0];
+      for (let n = 2; n <= bonds.length; n++) steps.push(groupFx(bonds.slice(0, n)).dmg);
       const evoStats = [...new Set(plan.filter(m => m.evo).map(m => m.evoName))];
 
       // ---- naturaleza ----
@@ -543,10 +654,10 @@
         if (!id || seen.has(id)) return;
         seen.add(id);
         const a = abilityInfo(id, base, mon);
-        a.slot = slot; a.planK = mean(plan.map(m => a.mul(m.inst)));
+        a.slot = slot; a.planK = mean(plan.filter(m => !m.buff).map(m => a.mul(m.inst)));
         abilOpts.push(a);
       });
-      const cur = abilOpts.find(a => a.id === ab.id) || Object.assign(abil, { slot: ab.slot, planK: mean(plan.map(m => abil.mul(m.inst))) });
+      const cur = abilOpts.find(a => a.id === ab.id) || Object.assign(abil, { slot: ab.slot, planK: mean(plan.filter(m => !m.buff).map(m => abil.mul(m.inst))) });
       const bestAb = abilOpts.reduce((b, a) => (a.planK > b.planK ? a : b), cur);
       let abV, abWhy;
       if (bestAb !== cur && bestAb.planK > cur.planK + 0.04) {
@@ -558,18 +669,25 @@
       else { abV = 'normal'; abWhy = 'Es ' + cur.kind + ': no se puede medir en daño, lee lo que hace.'; }
 
       // ---- MT que entrarían en el plan ----
-      const autoPart = plan.filter(m => !m.pinned);
-      const cut = plan.length < slotsN ? 0 : autoPart.length ? autoPart[autoPart.length - 1].score : Infinity;
-      const tmBuy = [];
+      // (entra si, cambiándola por uno de los no fijados, el grupo rinde al menos un 3 % más)
+      const planV = objOf(plan), tmBuy = [];
       try {
         for (const id of arr(G.Mons.learnable(dex))) {
+          if (plan.some(p => p.id === id)) continue;
           const m = moveInfo(id, base, mon, new Set([id]));
-          if (!m || m.buff) continue;
-          m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK;
-          if (m.score > cut) tmBuy.push(m);
+          if (!m) continue;
+          if (!m.buff) { m.abilK = abil.mul(m.inst); m.score = m.val * m.abilK; }
+          let v = plan.length < slotsN ? objOf(plan.concat(m)) : 0;
+          for (const out of plan) {
+            if (out.pinned) continue;
+            const list = plan.map(x => (x === out ? m : x));
+            if (list.filter(x => x.buff).length > 2 || !list.some(x => !x.buff)) continue;
+            v = Math.max(v, objOf(list));
+          }
+          if (v > planV * 1.03) { m.gain = v - planV; tmBuy.push(m); }
         }
       } catch (e) { /* sin MT */ }
-      tmBuy.sort((a, b) => b.score - a.score);
+      tmBuy.sort((a, b) => b.gain - a.gain);
 
       // ---- movimiento inicial ----
       let start = null, startRec = null;
@@ -580,21 +698,23 @@
         const bestStart = plan.find(m => choices.includes(m.id));
         if (bestStart && start && bestStart.id !== start.id && bestStart.score > start.score * 1.1) startRec = bestStart;
       } catch (e) { /* nada */ }
-      // ---- mejoras compradas (Mejoras del menú) y aguante ----
-      // (se leen sin G.DB.upgradesOf, que crea la entrada en la partida si no existe)
-      const lv = (s && s.pupg && s.pupg[dex]) || {};
-      let perks = {};
-      try { perks = (G.Upgrades && G.Upgrades.perks(lv)) || {}; } catch (e) { /* nada */ }
-      const tP = G.Stats.taken(mon, 'physical'), tS = G.Stats.taken(mon, 'special');
-      const hpTot = (+mon.hp || 0) + (+perks.hp || 0);
-      const takenAvg = ((tP + tS) / 2) * (1 - (+perks.dmgReduce || 0));     // enemigos físicos y especiales a medias
+      // ---- aguante con su plan fusionado (Fortaleza, Agilidad y Acua Aro cuentan) ----
       const spd = (+mon.spd || 0) * (+perks.spdMul || 1);
-      const spdK = Math.sqrt(Math.max(0.2, spd / refSpd()));               // correr ayuda a esquivar
-      const defAbil = cur.kind === 'defensiva';
-      const tough = (hpTot / Math.max(0.1, takenAvg) + (+perks.regen || 0) * 20) * spdK * (defAbil ? 1.08 : 1);
+      const spdK = Math.sqrt(Math.max(0.2, spd / refSpd()));
+      const tough = toughOf(planFx.k);
       const toughInfo = { hp: +mon.hp || 0, hpUp: +perks.hp || 0, df: mon.df, sd: mon.sd, tP, tS, spd, spdK,
-        spdUp: +perks.spdMul || 1, regen: +perks.regen || 0, dmgReduce: +perks.dmgReduce || 0, defAbil };
+        spdUp: +perks.spdMul || 1, regen: +perks.regen || 0, dmgReduce: +perks.dmgReduce || 0, defAbil,
+        buffK: planFx.k, buffTough: tough / tough0 };
       const perkK = (+perks.atkMul || 1) / Math.max(0.1, +perks.cdMul || 1) * (1 + (+perks.crit || 0) * 0.5);
+
+      // ---- objetos: cuál le conviene más si te sale en un cofre (según el estilo) ----
+      const iw = Math.max(0.1, sw);
+      const items = Object.keys(ITEM_FX).map(id => {
+        const it = ITEM_FX[id], dK = it.dmg || 1, tK = toughOf(planFx.k, it) / tough;
+        let name = it.name;
+        try { const g = G.Items && G.Items.BY && G.Items.BY[id]; if (g && g.name) name = String(g.name); } catch (e) { /* nada */ }
+        return { id, name, note: it.note, dK, tK, v: dK * Math.pow(tK, iw) };
+      }).sort((a, b) => b.v - a.v);
 
       const hasStartUpg = !!(s && s.pupg && s.pupg[dex] && s.pupg[dex].start);
       const upgLv = Object.values((s && s.pupg && s.pupg[dex]) || {}).reduce((a, v) => a + (+v || 0), 0);
@@ -603,9 +723,9 @@
         dex, base, mon, name: base.name, types: arr(base.types), side,
         nat, rolled, natChanged: !!(s && s.pnat && s.pnat[dex]), natV, natWhy, bestNat,
         abil: cur, abilOpts, abV, abWhy, abSlot: ab.slot,
-        moves, attacks, plan, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
+        moves, attacks, plan, bonds, steps, planFx, items, style: cfg.style, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
         used: (s && s.pused && +s.pused[dex]) || 0,
-        power: plan.reduce((a, m) => a + m.score, 0) * perkK, perkK, tough, toughInfo
+        power: planFx.dmg * perkK, solo: steps[0] * perkK, perkK, tough, toughInfo
       };
     }
 
@@ -723,7 +843,8 @@
         <div class="psg-an-ctl">
           <input type="search" placeholder="Buscar Pokémon…" autocomplete="off">
           <select>
-            <option value="power">Más potentes</option>
+            <option value="power">Más potentes (plan fusionado)</option>
+            <option value="solo">Más potentes sin vínculos</option>
             <option value="tough">Más aguante</option>
             <option value="both">Potencia + aguante</option>
             <option value="fix">Naturaleza o habilidad a revisar</option>
@@ -731,8 +852,9 @@
             <option value="dex">Nº de Pokédex</option>
           </select>
         </div>
-        <p class="psg-an-help">⚔ Potencia: daño aproximado de sus 4 ataques del plan ya evolucionados, con su naturaleza,
-          su habilidad y tus mejoras compradas. 🛡 Aguante: su vida entre el daño que recibe según sus defensas, con su
+        <p class="psg-an-help">⚔ Potencia: daño aproximado de su plan de 4 FUSIONADO con vínculos (todos a la vez), ya
+          evolucionado, con sus potenciadores (Maquinación, Danza Espada…), su naturaleza, su habilidad y tus mejoras compradas.
+          Sin vínculos sólo dispara el hueco activo: lo ves en el detalle. 🛡 Aguante: su vida entre el daño que recibe según sus defensas, con su
           velocidad, su habilidad y tus mejoras. Ambos comparados con el mejor de tu colección (100). Toca un Pokémon para ver el detalle.</p>
         <details class="psg-mig">
           <summary>⇄ Copia de seguridad de tu partida</summary>
@@ -794,6 +916,7 @@
       let shown = rows.filter(r => !query || fold(r.name).includes(query));
       const by = {
         power: (a, b) => b.power - a.power,
+        solo: (a, b) => b.solo - a.solo || b.power - a.power,
         tough: (a, b) => b.tough - a.tough,
         both: (a, b) => (b.pct + b.tpct) - (a.pct + a.tpct) || b.power - a.power,
         fix: (a, b) => needsFix(b) - needsFix(a) || b.power - a.power,
@@ -827,8 +950,13 @@
       const abOpts = r.abilOpts.length > 1 ? '<ul class="psg-opts">' + r.abilOpts.map(a =>
         `<li${a.id === r.abil.id ? ' class="cur"' : ''}><b>${esc(a.name)}</b>${a.slot === 2 ? ' <small>(oculta)</small>' : ''}
           · ${a.kind}${a.planK !== 1 ? ' · ×' + a.planK.toFixed(2) + ' en su plan' : ''}<br><small>${esc(a.desc)}</small></li>`).join('') + '</ul>' : '';
-      const plan = r.plan.map(m => `<li>${m.pinned ? '📌 ' : ''}${chip(m.type)} <b>${esc(m.name)}</b> <small>${catTxt(m.cat)}${m.tm ? ' · MT' : ''}${m.fit < 0.95 ? ' · rinde ' + Math.round(m.fit * 100) + ' %' : ''}</small>
-          ${m.evo ? `<br><small>🔁 Al máximo + <b>${esc(m.evoName)}</b> → ${esc(m.name)} +</small>` : `<br><small>(${m.buff ? 'potenciador, ' : ''}no evoluciona)</small>`}</li>`).join('');
+      const plan = r.plan.map(m => `<li>${m.pinned ? '📌 ' : ''}${chip(m.type)} <b>${esc(m.name)}</b> <small>${m.buff ? 'Potenciador' : catTxt(m.cat)}${m.tm ? ' · MT' : ''}${!m.buff && m.fit < 0.95 ? ' · rinde ' + Math.round(m.fit * 100) + ' %' : ''}</small>
+          ${m.buff ? `<br><small>⬆️ ${esc(buffTxt(m))}</small>` : ''}
+          ${m.evo ? `<br><small>🔁 Al máximo + <b>${esc(m.evoName)}</b> → ${esc(m.name)} +</small>` : m.buff ? '' : '<br><small>(no evoluciona)</small>'}</li>`).join('');
+      const bondTxt = bondsHtml(r);
+      const itemTxt = r.items.length ? `<p>🎒 Objeto que más le conviene (estilo ${esc((STYLES[r.style] || STYLES.equilibrado).name)}), si te sale en un cofre:</p><ol class="psg-opts">`
+        + r.items.slice(0, 3).map(it => `<li><b>${esc(it.name)}</b>${it.dK > 1.001 ? ' · daño ' + pctTxt(it.dK) : ''}${Math.abs(it.tK - 1) > 0.01 ? ' · aguante ' + pctTxt(it.tK) : ''}<br><small>${esc(it.note)}</small></li>`).join('')
+        + '</ol><p><small>El ayudante marca el objeto con el que quedarte cuando te salga otro (y lo elige solo en «Automático»).</small></p>' : '';
       const planHead = r.custom
         ? ` <small>· 📌 fijado por ti</small> <button type="button" class="psg-mini" data-reset="${r.dex}">↺ Volver al calculado</button>`
         : ' <small>· calculado</small>';
@@ -846,7 +974,7 @@
       const all = r.attacks.concat(r.moves.filter(m => m.buff)).map(m => `<tr><td><button type="button" class="psg-pin${m.pinned ? ' on' : ''}"
             data-dex="${r.dex}" data-pin="${esc(m.id)}" title="${m.pinned ? 'Soltar del plan' : 'Fijar en el plan'}">📌</button></td>
           <td>${chip(m.type)} ${esc(m.name)}${m.tm ? ' <small>MT</small>' : ''}</td>
-          <td>${catTxt(m.cat)}</td><td>${m.buff ? '—' : Math.round(m.score)}</td><td>${m.evo ? esc(m.evoName) : '—'}</td></tr>`).join('');
+          <td>${m.buff ? 'Potenciador' : catTxt(m.cat)}</td><td>${m.buff ? '<small>' + esc(buffShort(m)) + '</small>' : Math.round(m.score)}</td><td>${m.evo ? esc(m.evoName) : '—'}</td></tr>`).join('');
       return `<div class="psg-det">
         <div class="psg-sec"><h4>Naturaleza ${nv[0]} ${nv[1]}</h4>
           <p><b>${esc(A.natName(r.nat))}</b> (${natFx})${r.natChanged ? ' <small>· cambiada con Menta</small>' : ''}.
@@ -855,9 +983,10 @@
           <p><b>${esc(r.abil.name)}</b>${r.abSlot === 2 ? ' <small>(oculta)</small>' : ''}: ${esc(r.abil.desc)}</p>
           <p>${esc(r.abWhy)}</p>${abOpts}</div>
         <div class="psg-sec"><h4>Aguante 🛡 ${r.tpct}</h4>${toughHtml(r)}</div>
-        <div class="psg-sec"><h4>Plan de 4 ataques${planHead}</h4><ol>${plan}</ol>${evo}${start}${tms}
+        <div class="psg-sec"><h4>Objetos 🎒</h4>${itemTxt}</div>
+        <div class="psg-sec"><h4>Plan de 4 (para fusionar)${planHead}</h4><ol>${plan}</ol>${bondTxt}${evo}${start}${tms}
           <p><small>Para elegir tú el plan, abre «Todos sus ataques» y toca 📌 (hasta 4). Los huecos que
-          dejes se rellenan con los mejores calculados. Las cartas de nivel siguen este plan.</small></p>
+          dejes se rellenan con la mejor combinación calculada. Las cartas de nivel y los vínculos siguen este plan.</small></p>
           <p><small>Mejoras compradas para este Pokémon: ${r.upgLv}. Partidas jugadas con él: ${r.used}.</small></p></div>
         <details class="psg-sec psg-all"${allOpen ? ' open' : ''}><summary>Todos sus ataques (${r.moves.length}) · 📌 para fijar</summary>
           <table><tr><th></th><th>Ataque</th><th>Clase</th><th>Potencia</th><th>Evoluciona con</th></tr>${all}</table></details>
@@ -865,6 +994,31 @@
     }
 
     const pctTxt = k => (k < 1 ? '−' + Math.round((1 - k) * 100) + ' %' : k > 1 ? '+' + Math.round((k - 1) * 100) + ' %' : 'igual');
+    /** Lo que da un potenciador con todas sus cargas (a su nivel máximo). */
+    function buffShort(m) {
+      const tot = m.stacks * m.amount;
+      if (m.stat === 'regen') return '+' + tot.toFixed(1) + ' vida/s';
+      if (m.stat === 'def') return '−' + Math.round(tot * 100) + ' % daño recibido';
+      return '+' + Math.round(tot * 100) + ' % ' + (BUFF_TXT[m.stat] || m.stat);
+    }
+    function buffTxt(m) {
+      const who = m.stat === 'patk' ? ' a los ataques físicos de su grupo' : m.stat === 'satk' ? ' a los ataques especiales de su grupo' : '';
+      return buffShort(m) + who + ' (' + m.stacks + ' cargas de ' + (m.stat === 'regen' ? m.amount.toFixed(1)
+        : Math.round(m.amount * 100) + ' %') + ', al máximo de nivel). Sólo funciona en el MISMO hueco que tus ataques: fusiónalo.';
+    }
+    /** Orden de los vínculos y cuánto rinde el plan con cada uno. */
+    function bondsHtml(r) {
+      if (r.bonds.length < 2 || !r.power) return '';
+      const full = r.planFx.dmg || 1, pc = v => Math.round(100 * v / full) + ' %';
+      const li = ['<li>Sin vínculos (sólo dispara el hueco activo): <b>' + pc(r.steps[0]) + '</b> de su daño fusionado</li>'];
+      li.push('<li>1.º vínculo: une <b>' + esc(r.bonds[0].name) + '</b> + <b>' + esc(r.bonds[1].name) + '</b> → <b>' + pc(r.steps[1]) + '</b></li>');
+      for (let i = 2; i < r.bonds.length; i++) li.push('<li>' + i + '.º vínculo: añade <b>' + esc(r.bonds[i].name) + '</b> → <b>' + pc(r.steps[i]) + '</b></li>');
+      const buffs = r.plan.filter(m => m.buff);
+      const note = buffs.length ? '<p><small>💡 ' + buffs.map(m => esc(m.name)).join(' y ') + ' no hace' + (buffs.length > 1 ? 'n' : '')
+        + ' daño, pero fusionado' + (buffs.length > 1 ? 's' : '') + ' multiplica lo de su grupo. Suelto, en otro hueco, se apaga al cambiar.</small></p>' : '';
+      return '<p>🔗 Vínculos (uno por legendario vencido; el ayudante marca cuál elegir y en «Automático» lo elige solo):</p><ul class="psg-opts">'
+        + li.join('') + '</ul>' + note;
+    }
     function toughHtml(r) {
       const t = r.toughInfo;
       const up = [];
@@ -878,6 +1032,9 @@
         <p>👟 Velocidad ${Math.round(t.spd)}: ${t.spdK >= 1 ? 'por encima' : 'por debajo'} de la media de los Pokémon del juego.</p>
         ${up.length ? `<p>⬆️ Tus mejoras: ${up.join(' · ')}.</p>` : ''}
         ${t.defAbil ? '<p>✨ Su habilidad es defensiva (cuenta un poco).</p>' : ''}
+        ${t.buffTough > 1.01 ? `<p>⬆️ Con los potenciadores de su plan (${[t.buffK.def ? '−' + Math.round(t.buffK.def * 100) + ' % daño' : '',
+          t.buffK.spd ? '+' + Math.round(t.buffK.spd * 100) + ' % velocidad' : '', t.buffK.regen ? '+' + t.buffK.regen.toFixed(1) + ' vida/s' : '']
+          .filter(Boolean).join(', ')}): aguante <b>${pctTxt(t.buffTough)}</b>.</p>` : ''}
         <p><small>Para aguantar más en partida: estilo 🛡️ Aguante en las cartas (Vigor, Coraza, Síntesis).</small></p>`;
     }
 
@@ -975,8 +1132,12 @@
         if (r && r.plan.length) {
           const needs = {};
           for (const m of r.plan) if (m.evo) (needs[m.evo] = needs[m.evo] || []).push(m.name);
-          v = { ids: r.plan.map(m => m.id), names: Object.fromEntries(r.plan.map(m => [m.id, m.name])), needs,
-                scores: Object.fromEntries(r.attacks.map(m => [m.id, m.score])) };
+          // scores: lo que vale cada ataque suelto; los del plan, lo que aportan al grupo fusionado
+          // (así un potenciador del plan no cuenta como 0).
+          const scores = Object.fromEntries(r.attacks.map(m => [m.id, m.score]));
+          for (const m of r.plan) scores[m.id] = Math.max(scores[m.id] || 0, m.gain || 0);
+          v = { ids: r.plan.map(m => m.id), names: Object.fromEntries(r.plan.map(m => [m.id, m.name])), needs, scores,
+                bonds: r.bonds.map(m => m.id), items: Object.fromEntries(r.items.map((it, i) => [it.id, { v: it.v, rank: i + 1, note: it.note }])) };
         }
       } catch (e) { console.warn('[PSG] no se pudo calcular el plan', e); }
       planCache = { run: runOf(pl), v };
@@ -1041,6 +1202,28 @@
       return origShow.call(G.RunUI, level, list, cb, coop);
     });
 
+    // Vínculo (al vencer a un legendario): qué movimientos fusionar. Se marca el que pide el plan y,
+    // en «Automático», se elige solo (en dos pasos si hay que unir dos sueltos).
+    if (isFn(G.RunUI, 'showBond')) {
+      const origBond = G.RunUI.showBond;
+      G.RunUI.showBond = exp(function (opt, cb) {
+        const r = origBond.call(G.RunUI, opt, cb);
+        try { bondOpt = unX(opt); watchBond(); setTimeout(() => { try { decorateBond(); } catch (e) { report('el vínculo', e); } }, 0); }
+        catch (e) { report('el vínculo', e); }
+        return r;
+      });
+    }
+    // Objeto nuevo llevando ya otro: ¿con cuál te quedas?
+    if (isFn(G.RunUI, 'showItemChoice')) {
+      const origItem = G.RunUI.showItemChoice;
+      G.RunUI.showItemChoice = exp(function (cur, next, cb) {
+        const r = origItem.call(G.RunUI, cur, next, cb);
+        try { const c = String(cur), n = String(next); setTimeout(() => { try { decorateItem(c, n); } catch (e) { report('el objeto', e); } }, 0); }
+        catch (e) { report('el objeto', e); }
+        return r;
+      });
+    }
+
     for (const fn of ['submitSolo', 'submitGroup']) {
       const orig = G.Ranking[fn];
       if (typeof orig !== 'function') continue;
@@ -1084,6 +1267,76 @@
         if (my !== token || !cfg.auto || !screenOpen()) return;
         G.RunUI.pick(best);
       }, delay);
+    }
+
+    // ---------------- vínculos y objetos ----------------
+
+    let bondOpt = null, bondObs = null, bondT = 0, itemT = 0;
+    const isShown = id => { const e = document.getElementById(id); return !!e && !e.classList.contains('hidden'); };
+    /** En el paso 2 de «unir dos sueltos» el juego vuelve a pintar las cartas: se vuelven a marcar. */
+    function watchBond() {
+      const box = document.getElementById('bond-cards');
+      if (!box || bondObs) return;
+      bondObs = new MutationObserver(() => { try { decorateBond(); } catch (e) { report('el vínculo', e); } });
+      bondObs.observe(box, { childList: true });
+    }
+    /** Movimientos del jugador en el orden de las cartas del vínculo (se reconocen por su nombre). */
+    function bondCards() {
+      const loose = arr(bondOpt && bondOpt.loose);
+      return [...document.querySelectorAll('#bond-cards .card')].map(el => {
+        const t = ((el.querySelector('.nm') || el).textContent || '').trim();
+        const m = loose.filter(x => t.startsWith(moveName(G, x))).sort((a, b) => moveName(G, b).length - moveName(G, a).length)[0];
+        return { el, m };
+      });
+    }
+    function decorateBond() {
+      if (!bondOpt || !isShown('scr-bond')) return;
+      const cards = bondCards();
+      if (!cards.length || cards.some(c => c.el.querySelector('.psg-badge'))) return;
+      const plan = planFor(G.Game.player);
+      // Primero, los del plan en el orden de sus vínculos; si no, el que más daño hace.
+      const rank = m => {
+        if (!m) return 1e9;
+        const i = plan && plan.bonds ? plan.bonds.indexOf(m.id) : -1;
+        const v = (plan && plan.scores[m.id]) || +m.dmg || 0;
+        return i >= 0 ? i : 100 + 1 / (1 + v);
+      };
+      let best = 0;
+      cards.forEach((c, i) => { if (rank(c.m) < rank(cards[best].m)) best = i; });
+      cards.forEach((c, i) => {
+        c.el.classList.toggle('psg-best', i === best);
+        if (i !== best || !c.m) return;
+        const k = plan && plan.bonds ? plan.bonds.indexOf(c.m.id) : -1;
+        const b = document.createElement('div');
+        b.className = 'psg-badge';
+        b.setAttribute('translate', 'no');
+        b.textContent = '★ Recomendado · ' + (k >= 0 ? 'va en el grupo de tu plan (n.º ' + (k + 1) + ' de ' + plan.bonds.length + ')'
+          : 'el que más suma al grupo');
+        (c.el.querySelector('.txt') || c.el).appendChild(b);
+      });
+      clearTimeout(bondT);
+      if (!cfg.auto || !isFn(G.RunUI, 'pickBond')) return;
+      bondT = setTimeout(() => {
+        if (!cfg.auto || !isShown('scr-bond')) return;
+        try { G.RunUI.pickBond(best); } catch (e) { report('el vínculo', e); }
+      }, Math.max(750, +cfg.delay || DEF.delay));
+    }
+    function decorateItem(cur, next) {
+      if (!isShown('scr-item')) return;
+      const els = [...document.querySelectorAll('#item-cards .card')];
+      if (els.length !== 2 || els.some(e => e.querySelector('.psg-badge'))) return;
+      const plan = planFor(G.Game.player), it = plan && plan.items;
+      if (!it || !it[cur] || !it[next]) return;
+      const best = it[next].v > it[cur].v * 1.01 ? 1 : 0, id = best ? next : cur;
+      els.forEach((e, i) => e.classList.toggle('psg-best', i === best));
+      const b = document.createElement('div');
+      b.className = 'psg-badge';
+      b.setAttribute('translate', 'no');
+      b.textContent = '★ Recomendado · n.º ' + it[id].rank + ' de los objetos para tu Pokémon (' + styleOf().name + ')';
+      (els[best].querySelector('.txt') || els[best]).appendChild(b);
+      clearTimeout(itemT);
+      if (!cfg.auto) return;
+      itemT = setTimeout(() => { if (cfg.auto && isShown('scr-item')) els[best].click(); }, Math.max(750, +cfg.delay || DEF.delay));
     }
 
     /** Vuelve a sacar las cartas de la pantalla abierta (al activar el modo libre). */
