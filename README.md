@@ -6,10 +6,27 @@ un **analizador de tu colección** y una **ayuda con las cartas** que salen al s
 ## Analizador de colección
 
 En el menú principal aparece el botón **⭐ Analizador** (junto a *Pokémon*). Abre una
-lista con todos tus Pokémon, cada uno con dos barras (⚔ potencia y 🛡 aguante, de 0 a 100
-respecto al mejor de tu colección), ordenable por *Más potentes* (plan fusionado), *Más potentes sin vínculos*, *Más aguante*,
-*Potencia + aguante*, *Naturaleza o habilidad a revisar*, *Más usados* o *Nº de Pokédex*,
-y con buscador. Tocando uno ves:
+lista con tus Pokémon, cada uno con dos barras (⚔ potencia y 🛡 aguante, de 0 a 100: 100 = el
+mejor de **todo el juego**, o de tu colección si cambias la *Escala*) y su puesto 🏆 entre los 966
+Pokémon del juego (se calcula en segundo plano al abrir).
+
+**Filtros como los de la Pokédex del juego** (desde 0.9.5): pestañas de **región** (Todas, Kanto,
+Johto, Hoenn, Sinnoh, Teselia, Kalos, Alola, Galar, Paldea, con cuántos tienes de cada una),
+*Tengo / Me faltan / Todos*, **categoría** (Normal, Legendario, Singular/mítico: el juego marca a
+los dos como «leg»; los singulares se separan con su lista oficial), **rareza** (★ a ★★★★★) y
+**tipo**. El buscador busca por nombre o por número (#487). Se ordena por *Más potentes* (plan
+fusionado), *Más potencial* (combinación ideal), *Más fuertes de fábrica*, *Más mejora con la
+combinación*, *Más potentes sin vínculos*, *Más aguante*, *Potencia + aguante*, *Naturaleza o
+habilidad a revisar*, *Más usados*, *Nº de Pokédex* o *Rareza*. Tocando uno ves:
+
+- **Stats de fábrica** 📊: los del juego tal cual (vida, velocidad, multiplicador de daño físico y
+  especial, defensas y total base), sin naturaleza ni mejoras, con su puesto entre los 966.
+- **De fábrica → combinación** 🧪: parte de cómo viene (= 100: sin naturaleza, su 1.ª habilidad,
+  sin mejoras, sin vínculos ni objeto) y suma paso a paso la naturaleza recomendada (Menta), la
+  mejor habilidad (en daño y aguante), tus mejoras compradas, el plan fusionado con potenciadores
+  y el mejor objeto, con el daño y el aguante de cada paso, el total (p. ej. Giratina ×6,8 de daño)
+  y cómo está tu Pokémon ahora. También sale para los que aún no tienes (con la naturaleza y la
+  habilidad que te tocarían en tu cuenta).
 
 - **Naturaleza** (✅ ideal/buena · ➖ normal/neutra · ⚠️ floja · ❌ mala): se juzga según el
   lado con el que pega su mejor plan (físico o especial). Si no es la ideal, te dice qué

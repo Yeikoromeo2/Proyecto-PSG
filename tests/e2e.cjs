@@ -112,7 +112,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   console.log('       Pikachu → mejoras para evolucionar:', an.pika.evo.join(', '), '· habilidad:', an.pika.ab);
   await page.click('#psg-an .psg-row[data-dex="25"]');
   const det = await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-det h4')].map(h => h.textContent.trim()));
-  check(det.length === 5, 'detalle con naturaleza, habilidad, aguante, objetos y plan: ' + det.join(' | '));
+  check(det.length === 7, 'detalle con stats de fábrica, combinación, naturaleza, habilidad, aguante, objetos y plan: ' + det.join(' | '));
   // Potenciadores, vínculos y objetos en el plan (Pikachu pega con especiales: Maquinación le sube todo).
   const fx = await page.evaluate(() => {
     const r = window.__psgMod.analyzer.analyze(25);
@@ -129,7 +129,9 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     'el detalle explica vínculos, potenciadores y objetos (mejor objeto: ' + fx.top + ')');
   const tough = await page.evaluate(() => {
     const A = window.__psgMod.analyzer;
-    const sel = document.querySelector('#psg-an select');
+    const sc = document.querySelector('#psg-an .psg-scale');           // barras sobre tu colección: el primero es 100
+    sc.value = 'col'; sc.dispatchEvent(new Event('change', { bubbles: true }));
+    const sel = document.querySelector('#psg-an .psg-sort');
     sel.value = 'tough'; sel.dispatchEvent(new Event('change'));
     const first = document.querySelector('#psg-an .psg-row');
     return { bars: document.querySelectorAll('#psg-an .psg-row .psg-bar.tough').length, rows: document.querySelectorAll('#psg-an .psg-row').length,
@@ -138,14 +140,62 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   });
   check(tough.bars === tough.rows && /100/.test(tough.firstT), `barra de aguante en cada fila y orden «Más aguante» (primero: ${tough.firstName})`);
   check(tough.snorlax > tough.pika, `Snorlax aguanta más que Pikachu (${tough.snorlax} > ${tough.pika})`);
-  await page.evaluate(() => { const sel = document.querySelector('#psg-an select'); sel.value = 'power'; sel.dispatchEvent(new Event('change')); });
+  await page.evaluate(() => { const sel = document.querySelector('#psg-an .psg-sort'); sel.value = 'power'; sel.dispatchEvent(new Event('change')); });
+
+  // Todo el juego: puestos, filtros como los de la Pokédex y «de fábrica → combinación».
+  await page.waitForFunction(() => !/calculando/.test(document.querySelector('#psg-an .psg-an-count').textContent), null, { timeout: 30000 })
+    .then(() => check(true, 'calcula los 966 Pokémon del juego en segundo plano'), () => check(false, 'no terminó de calcular el juego'));
+  const flt = await page.evaluate(() => {
+    const click = (f, v) => document.querySelector(`#psg-an [data-f="${f}"][data-v="${v}"]`).click();
+    const dexes = () => [...document.querySelectorAll('#psg-an .psg-row')].map(r => +r.dataset.dex);
+    click('status', 'all'); click('gen', '4');
+    const sinnoh = dexes();
+    click('cat', 'myth');
+    const myth = dexes();
+    click('gen', '0'); click('cat', 'myth'); click('cat', 'leg');
+    const leg = dexes();
+    click('clear', '');
+    const owned = dexes().length;
+    const q = document.querySelector('#psg-an .psg-q');
+    q.value = '#487'; q.dispatchEvent(new Event('input'));
+    const gira = dexes();
+    return { sinnoh: sinnoh.length, allSinnoh: sinnoh.every(d => G.DEX_BY[d].gen === 4), myth, leg: leg.length, legOk: leg.every(d => G.DEX_BY[d].leg && ![151, 251].includes(d)),
+      hasGira: leg.includes(487), owned, gira, total: G.DEX.filter(p => p.gen === 4).length,
+      gens: document.querySelectorAll('#psg-an .psg-an-gens .psg-fc').length };
+  });
+  check(flt.gens === 10 && flt.allSinnoh && flt.sinnoh === flt.total, `región Sinnoh con «Todos»: ${flt.sinnoh}/${flt.total} (y pestañas Todas + 9 regiones)`);
+  check(flt.myth.slice().sort().join() === '489,490,491,492,493', 'Sinnoh + Singulares (míticos): ' + flt.myth.join(','));
+  check(flt.legOk && flt.hasGira && flt.leg > 40, `Legendarios de todas las regiones (${flt.leg}, sin Mew ni Celebi)`);
+  check(flt.owned === 11 && flt.gira.join() === '487', '«Quitar filtros» vuelve a tu colección y se busca por número (#487 → Giratina)');
+  await page.click('#psg-an .psg-row[data-dex="487"]');
+  const gira = await page.evaluate(() => {
+    const r = window.__psgMod.analyzer.analyze(487), c = r.combo.chain;
+    const det = document.querySelector('#psg-an .psg-det');
+    return { steps: c.map(x => Math.round(100 * x.p / c[0].p)), tough: c.map(x => Math.round(100 * x.t / c[0].t)),
+      ranks: det.querySelectorAll('table.psg-stats small').length, combo: det.querySelectorAll('table.psg-combo tr').length,
+      txt: det.querySelector('.psg-combo').closest('.psg-sec').textContent.replace(/\s+/g, ' ').slice(0, 240) };
+  });
+  check(gira.steps[5] > gira.steps[0] && gira.steps[4] > gira.steps[3] && gira.combo === 7 && /🏆 #\d+\/966/.test(await page.evaluate(() => document.querySelector('#psg-an table.psg-stats').textContent)),
+    `Giratina: de fábrica → combinación ⚔ ${gira.steps.join(' → ')} · 🛡 ${gira.tough.join(' → ')}`);
+  console.log('       ' + gira.txt);
+  if (SHOTS) {
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.evaluate(() => document.querySelector('#psg-an .psg-row.open').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(SHOTS, 'analizador-giratina.png') });
+    await page.evaluate(() => document.querySelector('#psg-an').scrollTop = 0);
+    await page.screenshot({ path: path.join(SHOTS, 'analizador-filtros.png') });
+    await page.setViewportSize({ width: 915, height: 412 });
+  }
+  await page.evaluate(() => { const q = document.querySelector('#psg-an .psg-q'); q.value = ''; q.dispatchEvent(new Event('input')); });
+  console.log('       filas tras quitar la búsqueda:', await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-row')].map(r => r.dataset.dex).join(',')));
   await page.click('#psg-an .psg-row[data-dex="25"]').catch(() => {});
   if (!(await page.evaluate(() => !!document.querySelector('#psg-an .psg-row.open[data-dex="25"]')))) await page.click('#psg-an .psg-row[data-dex="25"]');
   if (SHOTS) {
     await page.screenshot({ path: path.join(SHOTS, 'analizador.png') });
     await page.setViewportSize({ width: 412, height: 915 });
     await page.screenshot({ path: path.join(SHOTS, 'analizador-vertical.png') });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[4].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[6].scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-plan.png') });
     await page.setViewportSize({ width: 915, height: 412 });
@@ -161,7 +211,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(/fijado por ti/.test(pinned.head) && pinned.allOpen, 'el plan se marca como «fijado por ti» y la tabla sigue abierta');
   if (SHOTS) {
     await page.setViewportSize({ width: 412, height: 915 });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[4].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[6].scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-fijado.png') });
     await page.setViewportSize({ width: 915, height: 412 });

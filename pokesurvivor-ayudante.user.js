@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.4
+// @version      0.9.5
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -58,7 +58,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.4';
+  const VERSION = '0.9.5';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -429,6 +429,14 @@
   // Potenciadores: se relanzan cada ~0,85 s y cada carga dura 7 s, así que mientras estén en el
   // hueco que dispara llegan a su máximo de cargas y se quedan ahí (los primeros segundos, menos).
   const BUFF_RAMP = 0.9;
+  // Regiones (como las pestañas de la Pokédex del juego: el campo gen de cada Pokémon).
+  const GEN_NAMES = ['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Teselia', 'Kalos', 'Alola', 'Galar', 'Paldea'];
+  const RARITY_NAME = { 1: 'Común', 2: 'Poco común', 3: 'Rara', 4: 'Épica', 5: 'Legendaria' };
+  // El juego marca con «leg» a legendarios y singulares a la vez; los singulares (míticos) se separan aquí.
+  const MYTHICAL = new Set([151, 251, 385, 386, 489, 490, 491, 492, 493, 494, 647, 648, 649, 719, 720, 721, 801, 802,
+    807, 808, 809, 893, 1025]);
+  const catOf = p => (p && p.leg ? (MYTHICAL.has(+p.dex) ? 'myth' : 'leg') : 'normal');
+  const CAT_NAME = { normal: 'Normal', leg: 'Legendario', myth: 'Singular (mítico)' };
   const BUFF_TXT = { patk: 'Ataque (físico)', satk: 'Ataque Especial', spd: 'Velocidad', def: 'Defensa', regen: 'Regeneración' };
   // Reducción de daño típica de las cartas Coraza a mitad de partida (el juego la topa en 80 % con Fortaleza).
   const RUN_RED = 0.18;
@@ -524,7 +532,7 @@
       return {
         id, d, inst, name: moveName(d), type: d.type, cat: d.cat, kind: d.kind, buff,
         evo, evoName: evo && G.Moves.NEED_NAME ? G.Moves.NEED_NAME[evo] : '', fit: G.Stats.fit(mon, d.cat),
-        tm: taught.has(id), val: idx * statK, val0: idx * statK0, abilK: 1, score: 0, score0: 0,
+        tm: taught.has(id), idx, val: idx * statK, val0: idx * statK0, abilK: 1, score: 0, score0: 0,
         // Potenciador: qué stat sube y cuánto con todas sus cargas (a su nivel máximo).
         stat: buff ? d.stat : null, stacks: buff ? (+inst.stacks || 0) : 0, amount: buff ? (+inst.amount || 0) : 0,
         bk: buff ? (+inst.stacks || 0) * (+inst.amount || 0) * BUFF_RAMP : 0
@@ -573,15 +581,19 @@
       const tP = G.Stats.taken(mon, 'physical'), tS = G.Stats.taken(mon, 'special');
       const hpTot = (+mon.hp || 0) + (+perks.hp || 0);
       const defAbil = abil.kind === 'defensiva';
-      function toughOf(k, it) {
+      /** Aguante de un Pokémon (mx) con unas mejoras (pk), potenciadores (k) y objeto (it). */
+      function toughFor(mx, pk, dA, k, it) {
         k = k || {}; it = it || {};
-        const red = Math.min(0.8, (+perks.dmgReduce || 0) + RUN_RED + (k.def || 0) + (it.red || 0));
-        const takenAvg = ((tP + tS) / 2) * (1 - red);                      // enemigos físicos y especiales a medias
-        const spdV = (+mon.spd || 0) * (+perks.spdMul || 1) * (1 + (k.spd || 0)) * (it.spd || 1);
-        const spdK = Math.sqrt(Math.max(0.2, spdV / refSpd()));            // correr ayuda a esquivar
-        const regen = (+perks.regen || 0) + (k.regen || 0) + (it.regenPct || 0) * hpTot;
-        return (hpTot / Math.max(0.05, takenAvg) + regen * 20) * spdK * (defAbil ? 1.08 : 1) * (it.tk || 1);
+        const hpT = (+mx.hp || 0) + (+pk.hp || 0);
+        const tp = mx === mon ? tP : G.Stats.taken(share(mx), 'physical'), ts = mx === mon ? tS : G.Stats.taken(share(mx), 'special');
+        const red = Math.min(0.8, (+pk.dmgReduce || 0) + RUN_RED + (k.def || 0) + (it.red || 0));
+        const takenAvg = ((tp + ts) / 2) * (1 - red);                       // enemigos físicos y especiales a medias
+        const spdV = (+mx.spd || 0) * (+pk.spdMul || 1) * (1 + (k.spd || 0)) * (it.spd || 1);
+        const spdK = Math.sqrt(Math.max(0.2, spdV / refSpd()));             // correr ayuda a esquivar
+        const regen = (+pk.regen || 0) + (k.regen || 0) + (it.regenPct || 0) * hpT;
+        return (hpT / Math.max(0.05, takenAvg) + regen * 20) * spdK * (dA ? 1.08 : 1) * (it.tk || 1);
       }
+      const toughOf = (k, it) => toughFor(mon, perks, defAbil, k, it);
       const tough0 = toughOf();
       const sw = STYLE_W[cfg.style] != null ? STYLE_W[cfg.style] : STYLE_W.equilibrado;
       /** Valor de un grupo que se lanza a la vez: su daño, con un poco de aguante según el estilo. */
@@ -716,11 +728,59 @@
         return { id, name, note: it.note, dK, tK, v: dK * Math.pow(tK, iw) };
       }).sort((a, b) => b.v - a.v);
 
+      // ---- de fábrica → con la combinación: cuánto suma cada cosa ----
+      // «De fábrica»: los stats del juego tal cual (sin naturaleza), su primera habilidad, sin mejoras
+      // compradas, sin vínculos (sólo dispara un movimiento) y sin objeto. Luego se añade, por orden:
+      // la naturaleza recomendada, la mejor habilidad, tus mejoras, los vínculos con potenciadores y el objeto.
+      const monWith = n => {
+        const m = {};
+        for (const k of ['dex', 'name', 'hp', 'spd', 'atk', 'pa', 'sa', 'df', 'sd']) m[k] = base[k];
+        m.types = arr(base.types);
+        if (n && n.up) m[n.up] = base[n.up] * 1.1;
+        if (n && n.down) m[n.down] = base[n.down] * 0.9;
+        m.atk = Math.max(m.pa, m.sa);
+        return m;
+      };
+      const abCache = {};
+      const abFor = (id, mx, key) => abCache[id + '|' + key] || (abCache[id + '|' + key] = abilityInfo(id, base, mx));
+      function scen(o) {
+        const mx = monWith(o.nat), a = abFor(o.abil, mx, o.nat ? o.nat.id : '-');
+        const st = m => (m.cat === 'special' ? mx.sa : m.cat === 'physical' ? mx.pa : 0);
+        const rs = m => (m.buff ? m : Object.assign({}, m, { score: m.idx * st(m) * a.mul(m.inst) }));
+        const pk = o.perks ? perks : {}, it = (o.item && ITEM_FX[o.item]) || {};
+        let dmg = 0, k = {};
+        if (o.fused) { const f = groupFx(plan.map(rs)); dmg = f.dmg; k = f.k; }
+        else for (const m of attacks) dmg = Math.max(dmg, rs(m).score);
+        dmg *= (o.perks ? perkK : 1) * (it.dmg || 1);
+        return { p: dmg, t: toughFor(mx, pk, a.kind === 'defensiva', k, it) };
+      }
+      const slot0 = arr(G.Mons.slots(dex))[0] || ab.id, bestItem = items[0] ? items[0].id : null;
+      // Habilidad de la combinación: la que más rinde en daño y aguante (a igualdad, la que ya tiene).
+      const abVal = id => { const x = scen({ nat: bestNat, abil: id }); return x.p * Math.pow(x.t, Math.max(0.1, sw)); };
+      const comboAb = abilOpts.reduce((b, a) => (abVal(a.id) > abVal(b.id) * 1.001 ? a : b), cur);
+      const NB = { nat: bestNat, abil: comboAb.id };
+      const chain = [
+        { key: 'fab', label: 'De fábrica', ...scen({ nat: null, abil: slot0 }) },
+        { key: 'nat', label: 'Naturaleza ' + natName(bestNat), ...scen({ nat: bestNat, abil: slot0 }) },
+        { key: 'abil', label: 'Habilidad ' + comboAb.name + (comboAb.id === slot0 ? ' (la de fábrica ya es la mejor)' : ''), ...scen(NB) },
+        { key: 'perks', label: 'Tus mejoras compradas', ...scen({ ...NB, perks: true }) },
+        { key: 'bonds', label: 'Vínculos + potenciadores (plan fusionado)', ...scen({ ...NB, perks: true, fused: true }) },
+        { key: 'item', label: 'Objeto ' + (items[0] ? items[0].name : ''), ...scen({ ...NB, perks: true, fused: true, item: bestItem }) }
+      ];
+      const combo = {
+        chain,
+        now: scen({ nat, abil: ab.id, perks: true }),                         // tu Pokémon al empezar una partida
+        // Potencial (para comparar con todo el juego): la combinación sin tus mejoras compradas.
+        potential: scen({ ...NB, fused: true, item: bestItem }),
+        bestAbSlot: comboAb.slot
+      };
+
       const hasStartUpg = !!(s && s.pupg && s.pupg[dex] && s.pupg[dex].start);
       const upgLv = Object.values((s && s.pupg && s.pupg[dex]) || {}).reduce((a, v) => a + (+v || 0), 0);
 
       return {
-        dex, base, mon, name: base.name, types: arr(base.types), side,
+        dex, base, mon, name: base.name, types: arr(base.types), side, combo,
+        gen: +base.gen || 0, rarity: +base.rarity || 0, cat: catOf(base), owned: !!(s && s.owned && s.owned[dex]),
         nat, rolled, natChanged: !!(s && s.pnat && s.pnat[dex]), natV, natWhy, bestNat,
         abil: cur, abilOpts, abV, abWhy, abSlot: ab.slot,
         moves, attacks, plan, bonds, steps, planFx, items, style: cfg.style, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
@@ -729,12 +789,21 @@
       };
     }
 
-    return { analyze, natName, typeName, togglePin, resetPins: dex => setPins(dex, []) };
+    const monName = d => { try { return String(G.T(G.DEX_BY[d].name)); } catch (e) { return ''; } };
+    return { analyze, natName, typeName, monName, togglePin, resetPins: dex => setPins(dex, []) };
   }
 
   function installAnalyzer(G, toast, core) {
     const A = core || analyzerCore(G);
     let el = null, rows = [], openDex = null, sortBy = 'power', query = '', allOpen = false;
+    // Filtros como los de la Pokédex del juego: región, tengo/me faltan, categoría, rareza y tipo.
+    // scale: 'game' = barras y puestos sobre los 966 Pokémon del juego · 'col' = sobre tu colección.
+    const F0 = () => ({ gen: 0, status: 'own', cats: new Set(), rar: new Set(), type: '', scale: 'game' });
+    let filt = F0();
+    const cache = new Map();          // dex → análisis (de esta apertura del analizador)
+    let job = 0, gameDone = false, ranks = null;
+    const ownedSet = () => { const s = G.DB && G.DB.save; return new Set((s && s.owned ? Object.keys(s.owned) : []).map(Number)); };
+    const DEXL = () => arr(G.DEX).filter(p => p && G.DEX_BY[p.dex]);
 
     function addMenuButton() {
       if (document.getElementById('psg-an-btn')) return true;
@@ -773,28 +842,72 @@
     }
     if (!addMenuButton()) { const t = setInterval(() => { if (addMenuButton()) clearInterval(t); }, 1000); }
 
+    function analyzeOne(d) {
+      try { const r = A.analyze(d); if (r) cache.set(d, r); return r; } catch (e) { console.warn('[PSG] no se pudo analizar', d, e); return null; }
+    }
     function open() {
-      const s = G.DB && G.DB.save;
-      // Se abre siempre (aunque la cuenta esté vacía): así se puede importar una partida traída de otra cuenta.
-      rows = (s && s.owned ? Object.keys(s.owned) : []).map(Number).filter(d => G.DEX_BY[d]).map(d => {
-        try { return A.analyze(d); } catch (e) { console.warn('[PSG] no se pudo analizar', d, e); return null; }
-      }).filter(Boolean);
-      rescale();
+      // Se abre siempre (aunque la cuenta esté vacía). Primero tu colección; el resto del juego, en segundo plano.
+      cache.clear(); gameDone = false; ranks = null;
+      for (const d of ownedSet()) if (G.DEX_BY[d]) analyzeOne(d);
       if (!el) build();
       el.classList.remove('psg-hidden');
-      paint();
+      collect(); rescale(); paint();
+      startJob();
     }
-    function close() { if (el) el.classList.add('psg-hidden'); }
+    function close() { if (el) el.classList.add('psg-hidden'); job++; }
+    /** Analiza los 966 del juego poco a poco (sin parar la pantalla) para los puestos y la escala del juego. */
+    function startJob() {
+      const my = ++job, todo = DEXL().map(p => +p.dex).filter(d => !cache.has(d));
+      let i = 0;
+      const step = () => {
+        if (my !== job) return;
+        const t0 = performance.now();
+        while (i < todo.length && performance.now() - t0 < 25) analyzeOne(todo[i++]);
+        paintCount();
+        if (i < todo.length) { setTimeout(step, 0); return; }
+        gameDone = true;
+        computeRanks(); collect(); rescale(); paint(false);
+      };
+      setTimeout(step, 0);
+    }
+    /** Puesto de cada Pokémon entre todos los del juego, en cada medida (1 = el mejor). */
+    function computeRanks() {
+      const all = [...cache.values()];
+      const rk = val => { const m = new Map(); all.slice().sort((a, b) => val(b) - val(a)).forEach((r, i) => m.set(r.dex, i + 1)); return m; };
+      const st = k => r => +r.base[k] || 0;
+      ranks = {
+        n: all.length, power: rk(r => r.power), tough: rk(r => r.tough),
+        fab: rk(r => r.combo.chain[0].p), fabT: rk(r => r.combo.chain[0].t),
+        pot: rk(r => r.combo.potential.p), potT: rk(r => r.combo.potential.t),
+        hp: rk(st('hp')), spd: rk(st('spd')), pa: rk(st('pa')), sa: rk(st('sa')), df: rk(st('df')), sd: rk(st('sd')), bst: rk(st('bst'))
+      };
+    }
+    /** Los que pasan los filtros (sin la búsqueda, que va aparte). */
+    function collect() {
+      const own = ownedSet();
+      rows = DEXL().filter(p => {
+        const d = +p.dex, o = own.has(d);
+        if (filt.status === 'own' && !o) return false;
+        if (filt.status === 'miss' && o) return false;
+        if (filt.gen && +p.gen !== filt.gen) return false;
+        if (filt.cats.size && !filt.cats.has(catOf(p))) return false;
+        if (filt.rar.size && !filt.rar.has(+p.rarity)) return false;
+        if (filt.type && !arr(p.types).includes(filt.type)) return false;
+        return true;
+      }).map(p => cache.get(+p.dex)).filter(Boolean);
+    }
     function rescale() {
-      const top = Math.max(1, ...rows.map(r => r.power)), topT = Math.max(1, ...rows.map(r => r.tough));
-      rows.forEach(r => { r.pct = Math.round(100 * r.power / top); r.tpct = Math.round(100 * r.tough / topT); });
+      const base = filt.scale === 'game' && gameDone ? [...cache.values()] : [...cache.values()].filter(r => r.owned);
+      const top = Math.max(1, ...base.map(r => r.power)), topT = Math.max(1, ...base.map(r => r.tough));
+      for (const r of cache.values()) {
+        r.pct = Math.min(100, Math.round(100 * r.power / top)); r.tpct = Math.min(100, Math.round(100 * r.tough / topT));
+      }
     }
     /** Vuelve a analizar un Pokémon (tras fijar o soltar un ataque) y repinta sin moverse. */
     function refresh(dex) {
-      const i = rows.findIndex(r => r.dex === dex);
-      if (i >= 0) { try { rows[i] = A.analyze(dex); } catch (e) { console.warn('[PSG]', e); } }
-      rescale();
-      paint(false);
+      analyzeOne(dex);
+      if (gameDone) computeRanks();
+      collect(); rescale(); paint(false);
     }
 
     // =============== copia de seguridad de la partida (SÓLO LECTURA) ===============
@@ -841,21 +954,28 @@
           <button type="button" class="psg-an-x" aria-label="Cerrar">✕</button>
         </div>
         <div class="psg-an-ctl">
-          <input type="search" placeholder="Buscar Pokémon…" autocomplete="off">
-          <select>
+          <input type="search" class="psg-q" placeholder="Buscar por nombre o nº…" autocomplete="off">
+          <select class="psg-sort">
             <option value="power">Más potentes (plan fusionado)</option>
+            <option value="pot">Más potencial (combinación ideal)</option>
+            <option value="fab">Más fuertes de fábrica</option>
+            <option value="gain">Más mejora con la combinación</option>
             <option value="solo">Más potentes sin vínculos</option>
             <option value="tough">Más aguante</option>
             <option value="both">Potencia + aguante</option>
             <option value="fix">Naturaleza o habilidad a revisar</option>
             <option value="used">Más usados</option>
             <option value="dex">Nº de Pokédex</option>
+            <option value="rar">Rareza</option>
           </select>
         </div>
-        <p class="psg-an-help">⚔ Potencia: daño aproximado de su plan de 4 FUSIONADO con vínculos (todos a la vez), ya
+        <div class="psg-an-gens"></div>
+        <details class="psg-fbox"><summary>Filtros <span class="psg-fsum"></span></summary><div class="psg-an-filt"></div></details>
+        <details class="psg-fbox"><summary>ℹ️ Qué significan ⚔ 🛡 🏆</summary><p class="psg-an-help">⚔ Potencia: daño aproximado de su plan de 4 FUSIONADO con vínculos (todos a la vez), ya
           evolucionado, con sus potenciadores (Maquinación, Danza Espada…), su naturaleza, su habilidad y tus mejoras compradas.
           Sin vínculos sólo dispara el hueco activo: lo ves en el detalle. 🛡 Aguante: su vida entre el daño que recibe según sus defensas, con su
-          velocidad, su habilidad y tus mejoras. Ambos comparados con el mejor de tu colección (100). Toca un Pokémon para ver el detalle.</p>
+          velocidad, su habilidad y tus mejoras. 100 = el mejor de todo el juego (o de tu colección, si lo cambias en «Escala»);
+          🏆 es su puesto entre los 966 del juego. Toca un Pokémon para ver sus stats de fábrica y cuánto sube con la combinación.</p></details>
         <details class="psg-mig">
           <summary>⇄ Copia de seguridad de tu partida</summary>
           <p>Guarda una <b>copia de tu progreso</b> (Pokémon, mejoras, naturalezas, MT…) en un archivo, para tenerla de
@@ -874,8 +994,29 @@
         d.open = true;
         try { d.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* nada */ }
       });
-      el.querySelector('input').addEventListener('input', e => { query = fold(e.target.value); paint(); });
-      el.querySelector('select').addEventListener('change', e => { sortBy = e.target.value; paint(); });
+      el.querySelector('.psg-q').addEventListener('input', e => { query = fold(e.target.value).trim(); paint(); });
+      el.querySelector('.psg-sort').addEventListener('change', e => { sortBy = e.target.value; paint(); });
+      // Filtros (región, tengo/me faltan, categoría, rareza, tipo, escala).
+      const onFilt = e => {
+        const b = e.target.closest('[data-f]');
+        if (!b) return;
+        const f = b.dataset.f, v = b.dataset.v;
+        if (f === 'gen') filt.gen = +v;
+        else if (f === 'status') filt.status = v;
+        else if (f === 'cat') { if (filt.cats.has(v)) filt.cats.delete(v); else filt.cats.add(v); }
+        else if (f === 'rar') { if (filt.rar.has(+v)) filt.rar.delete(+v); else filt.rar.add(+v); }
+        else if (f === 'clear') { filt = F0(); query = ''; el.querySelector('.psg-q').value = ''; }
+        else return;
+        collect(); rescale(); paint();
+      };
+      el.querySelector('.psg-an-gens').addEventListener('click', onFilt);
+      el.querySelector('.psg-an-filt').addEventListener('click', onFilt);
+      el.querySelector('.psg-an-filt').addEventListener('change', e => {
+        if (e.target.matches('.psg-type-sel')) filt.type = e.target.value;
+        else if (e.target.matches('.psg-scale')) filt.scale = e.target.value;
+        else return;
+        collect(); rescale(); paint();
+      });
       el.querySelector('.psg-an-list').addEventListener('toggle', e => {
         if (e.target.matches && e.target.matches('details.psg-all')) allOpen = e.target.open;
       }, true);
@@ -911,10 +1052,47 @@
     const chip = t => `<span class="psg-type" style="background:${esc((G.U.TYPE_COLOR || {})[t] || '#666')}">${esc(A.typeName(t))}</span>`;
     const catTxt = c => (c === 'physical' ? 'Físico' : c === 'special' ? 'Especial' : '—');
 
+    function paintCount() {
+      const c = el && el.querySelector('.psg-an-count');
+      if (c) c.textContent = ' · ' + rows.length + ' Pokémon' + (gameDone ? '' : ' · calculando el juego ' + cache.size + '/' + DEXL().length + '…');
+    }
+    function paintFilters() {
+      const own = ownedSet(), all = DEXL();
+      const fc = (f, v, on, html) => `<button type="button" class="psg-fc${on ? ' on' : ''}" data-f="${f}" data-v="${esc(v)}">${html}</button>`;
+      el.querySelector('.psg-an-gens').innerHTML = ['Todas'].concat(GEN_NAMES).map((n, g) => {
+        const l = g ? all.filter(p => +p.gen === g) : all;
+        return fc('gen', g, filt.gen === g, `<b>${n}</b><small>${l.filter(p => own.has(+p.dex)).length}/${l.length}</small>`);
+      }).join('');
+      const types = Object.keys((G.U && G.U.TYPE_NAME) || {});
+      el.querySelector('.psg-an-filt').innerHTML =
+        [['own', 'Tengo'], ['miss', 'Me faltan'], ['all', 'Todos']].map(([k, t]) => fc('status', k, filt.status === k, t)).join('')
+        + '<span class="psg-fsep"></span>'
+        + ['normal', 'leg', 'myth'].map(k => fc('cat', k, filt.cats.has(k), CAT_NAME[k])).join('')
+        + '<span class="psg-fsep"></span>'
+        + [5, 4, 3, 2, 1].map(r => fc('rar', r, filt.rar.has(r), '★'.repeat(r) + ' ' + RARITY_NAME[r])).join('')
+        + `<select class="psg-type-sel"><option value="">Todos los tipos</option>${types.map(t =>
+            `<option value="${esc(t)}"${filt.type === t ? ' selected' : ''}>${esc(A.typeName(t))}</option>`).join('')}</select>`
+        + `<select class="psg-scale" title="Con quién se comparan las barras"><option value="game"${filt.scale === 'game' ? ' selected' : ''}>Escala: todo el juego</option>
+            <option value="col"${filt.scale === 'col' ? ' selected' : ''}>Escala: tu colección</option></select>`
+        + fc('clear', '', false, '✕ Quitar filtros');
+      const on = [{ own: 'Tengo', miss: 'Me faltan', all: 'Todos' }[filt.status]].concat([...filt.cats].map(k => CAT_NAME[k]),
+        [...filt.rar].sort().reverse().map(r => '★' + r), filt.type ? [A.typeName(filt.type)] : [], filt.scale === 'col' ? ['escala: colección'] : []);
+      el.querySelector('.psg-fsum').textContent = '· ' + on.join(' · ');
+    }
+    const gainOf = r => r.combo.chain[r.combo.chain.length - 1].p / Math.max(1e-9, r.combo.chain[0].p);
+
     function paint(scroll = true) {
       const list = el.querySelector('.psg-an-list');
-      let shown = rows.filter(r => !query || fold(r.name).includes(query));
+      paintFilters();
+      // Búsqueda como la del juego: por número (#487) o por nombre, en todas las regiones.
+      const num = /^#?\d+$/.test(query) ? +query.replace('#', '') : null;
+      let shown = !query ? rows : num != null ? [...cache.values()].filter(r => r.dex === num)
+        : rows.filter(r => fold(r.name).includes(query) || fold(A.monName(r.dex)).includes(query));
       const by = {
+        pot: (a, b) => b.combo.potential.p - a.combo.potential.p,
+        fab: (a, b) => b.combo.chain[0].p - a.combo.chain[0].p,
+        gain: (a, b) => gainOf(b) - gainOf(a),
+        rar: (a, b) => b.rarity - a.rarity || a.dex - b.dex,
         power: (a, b) => b.power - a.power,
         solo: (a, b) => b.solo - a.solo || b.power - a.power,
         tough: (a, b) => b.tough - a.tough,
@@ -924,18 +1102,20 @@
         dex: (a, b) => a.dex - b.dex
       }[sortBy];
       shown = shown.slice().sort(by);
-      el.querySelector('.psg-an-count').textContent = ' · ' + rows.length + ' Pokémon';
+      paintCount();
       list.innerHTML = shown.map(r => {
         const nv = VERD[r.natV] || VERD.normal, av = VERD[r.abV] || VERD.normal;
-        return `<div class="psg-row${openDex === r.dex ? ' open' : ''}" data-dex="${r.dex}">
-            <div class="psg-row-name"><small>#${r.dex}</small> ${esc(r.name)} ${r.types.map(chip).join('')}</div>
+        const rk = ranks && ranks.power.get(r.dex);
+        return `<div class="psg-row${openDex === r.dex ? ' open' : ''}${r.owned ? '' : ' miss'}" data-dex="${r.dex}">
+            <div class="psg-row-name"><small>#${r.dex}</small> ${esc(r.name)} ${r.types.map(chip).join('')}
+              <small class="psg-meta">${GEN_NAMES[r.gen - 1] || ''} · ${'★'.repeat(r.rarity)}${r.cat !== 'normal' ? ' · ' + CAT_NAME[r.cat] : ''}${rk ? ' · 🏆 #' + rk : ''}${r.owned ? '' : ' · no lo tienes'}</small></div>
             <div class="psg-bars"><div class="psg-bar" title="Potencia"><i style="width:${r.pct}%"></i><span>⚔ ${r.pct}</span></div>
               <div class="psg-bar tough" title="Aguante"><i style="width:${r.tpct}%"></i><span>🛡 ${r.tpct}</span></div></div>
             <div class="psg-row-tags"><span title="Naturaleza">${nv[0]} ${esc(A.natName(r.nat))}</span>
               <span title="Habilidad">${av[0]} ${esc(r.abil.name)}</span></div>
           </div>${openDex === r.dex ? detail(r) : ''}`;
-      }).join('') || (rows.length
-        ? '<p class="psg-an-help">Ningún Pokémon coincide.</p>'
+      }).join('') || (rows.length || cache.size > ownedSet().size || filt.status !== 'own'
+        ? '<p class="psg-an-help">Ningún Pokémon coincide' + (gameDone ? '' : ' (todavía estoy calculando el resto del juego)') + '.</p>'
         : '<p class="psg-an-help">Esta cuenta no tiene Pokémon todavía. Si vienes de otra cuenta (por ejemplo de Google), '
           + 'ten en cuenta que el juego no deja pasar Pokémon entre cuentas: pídeselo al autor en el Discord oficial.</p>');
       const opened = list.querySelector('.psg-row.open');
@@ -976,6 +1156,9 @@
           <td>${chip(m.type)} ${esc(m.name)}${m.tm ? ' <small>MT</small>' : ''}</td>
           <td>${m.buff ? 'Potenciador' : catTxt(m.cat)}</td><td>${m.buff ? '<small>' + esc(buffShort(m)) + '</small>' : Math.round(m.score)}</td><td>${m.evo ? esc(m.evoName) : '—'}</td></tr>`).join('');
       return `<div class="psg-det">
+        ${r.owned ? '' : '<p class="psg-an-help">Aún no lo tienes: la naturaleza y la habilidad son las que te tocarían en esta cuenta (salen fijas por cuenta y Pokémon).</p>'}
+        <div class="psg-sec"><h4>Stats de fábrica 📊</h4>${statsHtml(r)}</div>
+        <div class="psg-sec"><h4>De fábrica → combinación 🧪</h4>${comboHtml(r)}</div>
         <div class="psg-sec"><h4>Naturaleza ${nv[0]} ${nv[1]}</h4>
           <p><b>${esc(A.natName(r.nat))}</b> (${natFx})${r.natChanged ? ' <small>· cambiada con Menta</small>' : ''}.
           Su plan pega sobre todo con <b>${r.side === 'special' ? 'Ataque Especial' : 'Ataque'}</b>. ${esc(r.natWhy)}</p>${natTip}</div>
@@ -994,6 +1177,45 @@
     }
 
     const pctTxt = k => (k < 1 ? '−' + Math.round((1 - k) * 100) + ' %' : k > 1 ? '+' + Math.round((k - 1) * 100) + ' %' : 'igual');
+    const rkTxt = (k, dex) => (ranks && ranks[k] && ranks[k].get(dex) ? ` <small>🏆 #${ranks[k].get(dex)}/${ranks.n}</small>` : '');
+    /** Los stats del juego tal cual (sin naturaleza ni mejoras) y su puesto entre todos los Pokémon. */
+    function statsHtml(r) {
+      const b = r.base, x = v => '×' + (+v).toFixed(2);
+      const row = (label, v, k) => `<tr><td>${label}</td><td><b>${v}</b></td><td>${rkTxt(k, r.dex) || '<small>…</small>'}</td></tr>`;
+      return `<p>Región <b>${GEN_NAMES[r.gen - 1] || '—'}</b> · rareza ${'★'.repeat(r.rarity)} ${RARITY_NAME[r.rarity] || ''} · categoría <b>${CAT_NAME[r.cat]}</b></p>
+        <table class="psg-stats">
+          ${row('❤️ Vida', Math.round(b.hp), 'hp')}
+          ${row('👟 Velocidad', Math.round(b.spd), 'spd')}
+          ${row('⚔ Ataque (daño físico)', x(b.pa), 'pa')}
+          ${row('✨ Ataque Especial (daño especial)', x(b.sa), 'sa')}
+          ${row('🛡 Defensa', Math.round(b.df), 'df')}
+          ${row('🛡 Defensa Especial', Math.round(b.sd), 'sd')}
+          ${row('Σ Total de stats base', Math.round(b.bst || 0), 'bst')}
+        </table>
+        <p><small>Así viene en el juego, sin naturaleza, sin habilidad y sin mejoras. ⚔/✨ multiplican el daño de sus ataques
+          de cada lado. 🏆 = puesto entre los ${ranks ? ranks.n : DEXL().length} Pokémon del juego${ranks ? '' : ' (calculando…)'}.</small></p>`;
+    }
+    /** De fábrica → combinación: cuánto suma cada paso, en daño y en aguante. */
+    function comboHtml(r) {
+      const c = r.combo.chain, p0 = c[0].p || 1e-9, t0 = c[0].t || 1e-9;
+      const n = v => Math.round(v);
+      const rows = c.map((st, i) => {
+        const pv = 100 * st.p / p0, tv = 100 * st.t / t0;
+        const dp = i ? st.p / (c[i - 1].p || 1e-9) : 1, dt = i ? st.t / (c[i - 1].t || 1e-9) : 1;
+        const d = (k, base) => (i && Math.abs(k - 1) > 0.005 ? ` <small class="${k > 1 ? 'up' : 'dn'}">${pctTxt(k)}</small>` : base);
+        return `<tr${i === c.length - 1 ? ' class="tot"' : ''}><td>${i ? '+ ' : ''}${esc(st.label)}${st.key === 'abil' && r.combo.bestAbSlot === 2 ? ' <small>(oculta)</small>' : ''}</td>
+          <td>⚔ <b>${n(pv)}</b>${d(dp, '')}</td><td>🛡 <b>${n(tv)}</b>${d(dt, '')}</td></tr>`;
+      }).join('');
+      const last = c[c.length - 1], now = r.combo.now;
+      const toGo = last.p / (now.p || 1e-9);
+      return `<table class="psg-combo"><tr><th></th><th>Daño</th><th>Aguante</th></tr>${rows}</table>
+        <p>Con la combinación completa: daño <b>×${(last.p / p0).toFixed(1)}</b> y aguante <b>×${(last.t / t0).toFixed(1)}</b> respecto a como viene de fábrica.
+          ${rkTxt('pot', r.dex) ? 'Potencial en el juego:' + rkTxt('pot', r.dex) + ' · de fábrica:' + rkTxt('fab', r.dex) : ''}</p>
+        <p>${r.owned ? 'Tu ' + esc(r.name) + ' ahora' : 'Si lo consigues, al empezar'} (su naturaleza y habilidad${r.upgLv ? ', tus mejoras' : ''}, sin vínculos ni objeto):
+          ⚔ <b>${n(100 * now.p / p0)}</b> · 🛡 <b>${n(100 * now.t / t0)}</b>. Con la combinación llegaría a <b>×${toGo.toFixed(1)}</b> de daño.</p>
+        <p><small>De fábrica = 100. Cada paso se suma al anterior: naturaleza (Menta), habilidad (Cápsula), tus mejoras compradas,
+          el plan de 4 fusionado con sus potenciadores (en partida, con los vínculos) y el objeto. Valores aproximados, para comparar.</small></p>`;
+    }
     /** Lo que da un potenciador con todas sus cargas (a su nivel máximo). */
     function buffShort(m) {
       const tot = m.stacks * m.amount;
@@ -1050,6 +1272,24 @@
       #psg-an input,#psg-an select{font-family:inherit;font-size:14px;padding:7px 9px;border-radius:8px;border:1px solid #ffffff33;background:#0b1328;color:#fff}
       #psg-an input{flex:1;min-width:150px}
       #psg-an .psg-an-help{color:#9fb1c9;font-size:12px;margin:4px 0 10px}
+      #psg-an .psg-an-gens{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;-webkit-overflow-scrolling:touch}
+      #psg-an .psg-an-gens .psg-fc{display:flex;flex-direction:column;align-items:center;min-width:64px;flex:0 0 auto}
+      #psg-an .psg-an-filt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
+      #psg-an .psg-fbox{margin:0 0 6px}
+      #psg-an .psg-fbox>summary{cursor:pointer;font-size:13px;color:#cfd8ea;padding:3px 0}
+      #psg-an .psg-fsum{color:#ffd23f;font-size:12px}
+      #psg-an .psg-fc{font-family:inherit;font-size:12px;padding:5px 9px;border-radius:999px;border:1px solid #ffffff33;background:#0b1328;color:#dfe7f7;cursor:pointer}
+      #psg-an .psg-fc small{font-size:10px;color:#9fb1c9}
+      #psg-an .psg-fc.on{background:#ffd23f;color:#2a2000;border-color:#ffd23f}
+      #psg-an .psg-fc.on small{color:#4a3a00}
+      #psg-an .psg-fsep{width:1px;height:18px;background:#ffffff22;margin:0 2px}
+      #psg-an .psg-an-filt select{font-size:12px;padding:5px 7px}
+      #psg-an .psg-meta{display:block;font-size:11px;color:#9fb1c9;margin-top:2px}
+      #psg-an .psg-row.miss{opacity:.72}
+      #psg-an table.psg-stats td,#psg-an table.psg-combo td,#psg-an table.psg-combo th{padding:3px 6px;text-align:left}
+      #psg-an table.psg-combo tr.tot td{border-top:1px solid #ffffff33;color:#ffe48a}
+      #psg-an small.up{color:#7be495}
+      #psg-an small.dn{color:#ff9a9a}
       #psg-an .psg-an-mig{font-family:inherit;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;
         border:1px solid #ffd23f;background:#ffd23f;color:#2a2000;cursor:pointer}
       #psg-an .psg-mig{scroll-margin-top:56px;margin:0 0 10px;background:#ffffff0a;border-radius:10px;padding:6px 10px}
