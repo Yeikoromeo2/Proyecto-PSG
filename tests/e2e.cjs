@@ -89,16 +89,8 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
 
   // 0) Analizador de colección.
   check(await page.evaluate(() => !!document.getElementById('psg-an-btn')), 'botón «Analizador PSG» en el menú principal');
-  const migBtn = await page.evaluate(() => {
-    const b = document.getElementById('psg-mig-btn');
-    if (!b) return 'sin botón';
-    b.click();
-    const an = document.getElementById('psg-an'), d = document.querySelector('#psg-an .psg-mig');
-    const ok = an && !an.classList.contains('psg-hidden') && d && d.open;
-    window.__psgMod.analyzer.close();
-    return ok ? 'ok' : 'no se abrió';
-  });
-  check(migBtn === 'ok', 'botón «⇄ Copia de partida» en el menú: abre la copia de seguridad desplegada (' + migBtn + ')');
+  check(await page.evaluate(() => !document.getElementById('psg-mig-btn') && !document.querySelector('.psg-mig')),
+    'sin copia de seguridad / exportar (quitada a petición)');
   await page.evaluate(() => window.__psgMod.analyzer.open());
   const an = await page.evaluate(() => ({
     rows: document.querySelectorAll('#psg-an .psg-row').length,
@@ -112,8 +104,24 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     `naturaleza que baja su ataque principal → «mala» y Menta que lo sube (${an.pika.side}: ${an.pika.natV}, ${an.pika.best})`);
   console.log('       Pikachu → mejoras para evolucionar:', an.pika.evo.join(', '), '· habilidad:', an.pika.ab);
   await page.click('#psg-an .psg-row[data-dex="25"]');
-  const det = await page.evaluate(() => [...document.querySelectorAll('#psg-an .psg-det h4')].map(h => h.textContent.trim()));
-  check(det.length === 7, 'detalle con stats de fábrica, combinación, naturaleza, habilidad, aguante, objetos y plan: ' + det.join(' | '));
+  await page.waitForTimeout(500);
+  const det = await page.evaluate(() => {
+    const d = document.querySelector('#psg-an .psg-det');
+    const cv = d.querySelector('.psg-hero canvas.stage'), px = cv ? cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data : [];
+    let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) n++;
+    return { more: [...d.querySelectorAll('.psg-more h4')].map(h => h.textContent.trim()), moreOpen: d.querySelector('.psg-more').open,
+      sprite: n, radar: !!d.querySelector('.psg-hero svg.psg-radar polygon[stroke]'), chips: d.querySelectorAll('.psg-hero .psg-ck').length,
+      combos: [...d.querySelectorAll('.psg-combos .psg-combo')].map(c => c.querySelectorAll('.psg-mv').length) };
+  });
+  check(det.sprite > 200 && det.radar && det.chips >= 4, `ficha compacta: sprite animado del juego, hexágono de stats y ${det.chips} chips`);
+  check(det.combos.length === 3 && det.combos.every(n => n === 4), 'combos 1, 2 y 3 de 4 movimientos (' + det.combos.join('/') + ')');
+  check(!det.moreOpen && det.more.length === 7, 'el resto, plegado en «Más detalles»: ' + det.more.join(' | '));
+  const c23 = await page.evaluate(() => {
+    const r = window.__psgMod.analyzer.analyze(25), ids = [].concat(...r.combos).map(m => m.id);
+    return { uniq: new Set(ids).size === ids.length, buffs: [].concat(...r.combos).filter(m => m.buff).length, dmg: r.comboDmg.map(Math.round) };
+  });
+  check(c23.uniq && c23.buffs <= 2 && c23.dmg[0] >= c23.dmg[1] && c23.dmg[1] >= c23.dmg[2],
+    `combos sin repetir movimientos, como mucho 2 potenciadores entre todos (daño ${c23.dmg.join(' ≥ ')})`);
   // Potenciadores, vínculos y objetos en el plan (Pikachu pega con especiales: Maquinación le sube todo).
   const fx = await page.evaluate(() => {
     const r = window.__psgMod.analyzer.analyze(25);
@@ -173,8 +181,8 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     const r = window.__psgMod.analyzer.analyze(487), c = r.combo.chain;
     const det = document.querySelector('#psg-an .psg-det');
     return { steps: c.map(x => Math.round(100 * x.p / c[0].p)), tough: c.map(x => Math.round(100 * x.t / c[0].t)),
-      ranks: det.querySelectorAll('table.psg-stats small').length, combo: det.querySelectorAll('table.psg-combo tr').length,
-      txt: det.querySelector('.psg-combo').closest('.psg-sec').textContent.replace(/\s+/g, ' ').slice(0, 240) };
+      ranks: det.querySelectorAll('table.psg-stats small').length, combo: det.querySelectorAll('table.psg-chain tr').length,
+      txt: det.querySelector('table.psg-chain').closest('.psg-sec').textContent.replace(/\s+/g, ' ').slice(0, 240) };
   });
   check(gira.steps[5] > gira.steps[0] && gira.steps[4] > gira.steps[3] && gira.combo === 7 && /🏆 #\d+\/966/.test(await page.evaluate(() => document.querySelector('#psg-an table.psg-stats').textContent)),
     `Giratina: de fábrica → combinación ⚔ ${gira.steps.join(' → ')} · 🛡 ${gira.tough.join(' → ')}`);
@@ -182,50 +190,60 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   if (SHOTS) {
     await page.setViewportSize({ width: 412, height: 915 });
     await page.evaluate(() => document.querySelector('#psg-an .psg-row.open').scrollIntoView({ block: 'start' }));
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-giratina.png') });
     await page.evaluate(() => document.querySelector('#psg-an').scrollTop = 0);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-filtros.png') });
     await page.setViewportSize({ width: 915, height: 412 });
   }
-  // Comparador: dos Pokémon con la ficha del juego (sprite animado, tipos), barras enfrentadas y debilidades.
-  await page.evaluate(() => window.__psgMod.analyzer.compare(25, 487));
+  // Comparador: se eligen con las casillas de la lista (A y B), sin escribir números.
+  await page.evaluate(() => { const q = document.querySelector('#psg-an .psg-q'); q.value = ''; q.dispatchEvent(new Event('input')); });
+  await page.click('#psg-an .psg-sel[data-sel="25"]');
+  await page.click('#psg-an .psg-sel[data-sel="143"]');
+  const tray = await page.evaluate(() => ({ a: document.querySelector('#psg-an .psg-sel[data-sel="25"]').textContent,
+    b: document.querySelector('#psg-an .psg-sel[data-sel="143"]').textContent, go: !document.querySelector('#psg-an .psg-cmp-tray [data-tray="go"]').disabled }));
+  check(tray.a === 'A' && tray.b === 'B' && tray.go, 'casillas de la lista: Pikachu = A, Snorlax = B y botón «⚖️ Comparar»');
+  await page.click('#psg-an .psg-cmp-tray [data-tray="go"]');
   await page.waitForTimeout(900);
-  const cm = await page.evaluate(() => {
+  const cmpInfo = () => page.evaluate(() => {
     const c = document.getElementById('psg-cmp');
     const drawn = [...c.querySelectorAll('canvas.stage')].map(cv => {
       const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
       let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
       return n;
     });
-    return { open: !c.classList.contains('psg-hidden'), drawn, duels: c.querySelectorAll('.psg-duel').length,
-      wins: c.querySelectorAll('.psg-duel.a, .psg-duel.b').length, types: c.querySelectorAll('.psg-tcell').length,
-      bad: c.querySelectorAll('.psg-mult.bad').length, sum: c.querySelector('.psg-cmp-sum').textContent.replace(/\s+/g, ' ').trim(),
-      names: [...c.querySelectorAll('.psg-cmp-card .nm')].map(n => n.textContent) };
+    return { open: !c.classList.contains('psg-hidden'), drawn, rows: c.querySelectorAll('table.psg-win tr').length,
+      wins: c.querySelectorAll('table.psg-win td.win').length, polys: c.querySelectorAll('.psg-cmp-mid svg polygon[stroke-width]').length,
+      score: [...c.querySelectorAll('.psg-score span')].map(x => +x.textContent), weak: c.querySelectorAll('.psg-wk').length,
+      combos: c.querySelectorAll('.psg-combos .psg-combo').length, names: [...c.querySelectorAll('.psg-cmp-card .nm')].map(n => n.textContent) };
   });
-  check(cm.open && cm.names.join() === 'Pikachu,Giratina', 'comparador abierto: ' + cm.names.join(' vs '));
+  const cm = await cmpInfo();
+  check(cm.open && cm.names.join() === 'Pikachu,Snorlax', 'comparador abierto: ' + cm.names.join(' vs '));
   check(cm.drawn.length === 2 && cm.drawn.every(n => n > 200), `sprites animados del juego en los dos recuadros (${cm.drawn.join(', ')} píxeles)`);
-  check(cm.duels === 12 && cm.wins >= 10, `12 barras enfrentadas (stats del juego + en partida), ${cm.wins} con ganador`);
-  check(cm.types > 3 && cm.bad > 0, `debilidades y resistencias por tipo (${cm.types} tipos)`);
-  console.log('       ' + cm.sum);
+  check(cm.polys === 2 && cm.rows === 10 && cm.wins === cm.score[0] + cm.score[1] && cm.wins >= 8,
+    `hexágono A/B y ${cm.rows} funciones con ganador 👑 (${cm.score.join(' — ')})`);
+  check(cm.weak > 0 && cm.combos === 6, `debilidades y combos 1-2-3 de cada uno (${cm.combos})`);
+  // «Cambiar»: lista con buscador (sin saberse el número).
+  await page.click('#psg-cmp [data-change="b"]');
+  await page.fill('#psg-cmp .psg-pick-q', 'gira');
+  await page.check('#psg-cmp .psg-pick-all input');
+  await page.click('#psg-cmp [data-pickdex="487"]');
+  await page.waitForTimeout(600);
+  const cm2 = await cmpInfo();
+  check(cm2.names.join() === 'Pikachu,Giratina', '«Cambiar» B con el buscador: ' + cm2.names.join(' vs '));
   if (SHOTS) {
     await page.setViewportSize({ width: 412, height: 915 });
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(500);
     const shot = async f => { for (let i = 0; i < 3; i++) { try { await page.screenshot({ path: path.join(SHOTS, f) }); return; } catch (e) { console.log('       (captura ' + f + ': ' + e.message.split('\n')[0] + ')'); await page.waitForTimeout(500); } } };
     await shot('comparador.png');
-    await page.evaluate(() => { const h = [...document.querySelectorAll('#psg-cmp h4')][2]; if (h) h.scrollIntoView({ block: 'start' }); });
+    await page.evaluate(() => { const h = [...document.querySelectorAll('#psg-cmp h4')][0]; if (h) h.scrollIntoView({ block: 'start' }); });
     await page.waitForTimeout(300);
     await shot('comparador-2.png');
     await page.setViewportSize({ width: 915, height: 412 });
   }
-  const cm2 = await page.evaluate(() => {
-    const c = document.getElementById('psg-cmp');
-    c.querySelector('[data-mode="nat"]').click();
-    const inp = c.querySelector('[data-side="b"]');
-    inp.value = 'Mewtwo'; inp.dispatchEvent(new Event('change', { bubbles: true }));
-    return { b: c.querySelectorAll('.psg-cmp-card .nm')[1].textContent, duels: c.querySelectorAll('.psg-duel').length };
-  });
-  check(cm2.b === 'Mewtwo' && cm2.duels === 11, 'buscar otro Pokémon por nombre y ver los stats con su naturaleza');
+  await page.click('#psg-cmp [data-mode="nat"]');
+  check(await page.evaluate(() => document.querySelector('#psg-cmp [data-mode="nat"]').classList.contains('on')
+    && document.querySelectorAll('#psg-cmp table.psg-win tr').length === 10), 'con su naturaleza: misma tabla de ganadores');
   await page.keyboard.press('Escape');
   check(await page.evaluate(() => document.getElementById('psg-cmp').classList.contains('psg-hidden')
     && !document.getElementById('psg-an').classList.contains('psg-hidden')), 'Esc cierra el comparador y vuelve al analizador');
@@ -235,14 +253,16 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   if (SHOTS) {
     await page.screenshot({ path: path.join(SHOTS, 'analizador.png') });
     await page.setViewportSize({ width: 412, height: 915 });
+    await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-vertical.png') });
-    await page.evaluate(() => document.querySelectorAll('#psg-an .psg-det .psg-sec')[6].scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => { document.querySelector('#psg-an .psg-det .psg-more').open = true; document.querySelectorAll('#psg-an .psg-det .psg-sec')[6].scrollIntoView({ block: 'start' }); });
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(SHOTS, 'analizador-plan.png') });
     await page.setViewportSize({ width: 915, height: 412 });
   }
   // Plan fijado a mano: 📌 en «Todos sus ataques».
   const other = await page.evaluate(() => { const r = window.__psgMod.analyzer.analyze(25); return r.attacks.find(m => !r.plan.some(p => p.id === m.id)).id; });
+  await page.evaluate(() => { document.querySelector('#psg-an .psg-det .psg-more').open = true; });
   await page.click('#psg-an details.psg-all summary');
   await page.click(`#psg-an [data-dex="25"][data-pin="${other}"]`);
   const pinned = await page.evaluate(() => ({ r: (r => ({ custom: r.custom, first: r.plan[0].id, n: r.plan.length }))(window.__psgMod.analyzer.analyze(25)),
@@ -266,18 +286,6 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.click('#psg-an [data-reset="25"]');
   check(await page.evaluate(() => !window.__psgMod.analyzer.analyze(25).custom), '«Volver al calculado» quita lo fijado');
   await page.evaluate(id => window.__psgMod.analyzer.togglePin(25, id), other);
-  // Copia de seguridad (sólo lectura): exporta la partida y no cambia nada.
-  const exp = await page.evaluate(() => {
-    const A = window.__psgMod.analyzer;
-    const before = JSON.stringify(G.DB.save);
-    const text = A.exportSave();
-    const back = JSON.parse(text);
-    return { ok: typeof text === 'string' && text.length > 50, same: JSON.stringify(back.owned) === JSON.stringify(G.DB.save.owned),
-      untouched: JSON.stringify(G.DB.save) === before, noImport: typeof A.importSave === 'undefined' && !document.getElementById('psg-mig-import') };
-  });
-  check(exp.ok && exp.same, 'exportar devuelve la partida completa');
-  check(exp.untouched, 'exportar no cambia nada de la partida');
-  check(exp.noImport, 'no hay importar (el juego trata como trampa añadir Pokémon a mano)');
   // Deja la partida como estaba para el resto de la prueba (y vuelve a fijar el ataque del plan,
   // que iba en la cuenta anterior: los planes fijados se guardan por cuenta).
   await page.evaluate(id => {
@@ -408,6 +416,29 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(free.forced, 'modo libre: la partida queda marcada');
   check(free.pool >= 3, `modo libre: conoce todas las cartas posibles (${free.pool})`);
   console.log('       mejores puntuaciones posibles:', free.top.map(Math.round).join(', '), '|', free.shownBadges.join(' | '));
+  // Estilo en el modo libre: 🛡️ Aguante saca Coraza/Vigor/Síntesis; ⚖️ Equilibrado, una de ataque y una de defensa.
+  const styled = await page.evaluate(() => {
+    const M = window.__psgMod, pl = G.Game.player, ids = l => [...l].map(c => String(c.key).split(':')[1] + '/' + c.type);
+    const was = M.cfg.style, out = {};
+    for (const st of ['aguante', 'equilibrado', 'dano']) { M.cfg.style = st; out[st] = ids(G.LevelUp.offer(pl, 3)); }
+    // (el modo libre sólo usa cartas que el juego puede dar ahora: si en su sorteo no hay de ataque, no hay)
+    out.poolOff = M.fullPool().some(c => ['atk', 'cd'].includes(String(c.key).split(':')[1]) && c.type === 'stat');
+    // Equilibrado de verdad: con 4 de ataque y 0 de defensa, Coraza sube.
+    M.cfg.style = 'equilibrado';
+    const cor = { type: 'stat', key: 'stat:def' }, before = M.score(cor, pl)[0], tk = pl.statsTaken, saved = JSON.stringify(tk);
+    tk.atk = 3; tk.cd = 1; tk.hp = 0; tk.def = 0; tk.rgn = 0;
+    const after = M.score(cor, pl);
+    for (const k of Object.keys(tk)) delete tk[k];
+    Object.assign(tk, JSON.parse(saved));
+    M.cfg.style = was;
+    return { out, before, after };
+  });
+  const hasAny = (l, want) => l.some(x => want.includes(x.split('/')[0]) && x.endsWith('/stat'));
+  check(hasAny(styled.out.aguante, ['hp', 'def', 'rgn']), '🛡️ Aguante + modo libre: sale Coraza/Vigor/Síntesis (' + styled.out.aguante.join(', ') + ')');
+  check(hasAny(styled.out.equilibrado, ['hp', 'def', 'rgn']) && (hasAny(styled.out.equilibrado, ['atk', 'cd']) || !styled.out.poolOff),
+    '⚖️ Equilibrado + modo libre: una de ataque y una de defensa (' + styled.out.equilibrado.join(', ') + ')');
+  check(styled.after[0] > styled.before + 100 && /Equilibra/.test(styled.after[1]),
+    `⚖️ Equilibrado: con 4 de ataque y 0 de defensa, Coraza sube (${styled.before} → ${styled.after[0]}: ${styled.after[1]})`);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cartas-modo-libre.png') });
 
   // 4) Ranking: en una partida marcada no se sube nada.

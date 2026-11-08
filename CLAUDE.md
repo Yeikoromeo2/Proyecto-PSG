@@ -32,14 +32,21 @@
 - El anti-trampas del juego (`clean()`) sólo mira el reloj, propiedades propias del jugador
   (hurt/update/heal/gainXp) y límites de stats: no tocar nada de eso.
 
-## Copia de seguridad (en el Analizador) — SÓLO EXPORTAR
-- El ayudante exporta `G.DB.save` como JSON (archivo + texto). Es lectura: no cambia nada.
-- NO hay importar, a propósito: el juego publicado es autoritativo en servidor (`GET /save`,
-  `/eco/pull` para el gacha, `/run/start|end`, `/admin/suspects`, `/admin/ban`) y su changelog dice
-  que los Pokémon/shiny añadidos a mano a la partida del navegador «se quitan». Añadirlos sería saltarse
-  su anti-trampas y puede acabar en baneo. No volver a implementar importar ni nada que escriba la
-  colección. Mover una cuenta → el autor (tiene `/admin/save`).
-- Cross-Xray (Firefox): exportar con `W.JSON.stringify`.
+## Sin copia de seguridad ni importar
+- El usuario pidió quitar «exportar partida» (v0.9.8): no hay ningún botón de copia/exportar.
+- Tampoco importar, a propósito: el juego publicado es autoritativo en servidor (`GET /save`,
+  `/eco/pull` para el gacha, `/run/start|end`, `/admin/suspects`, `/admin/ban`) y quita los Pokémon/shiny
+  añadidos a mano. No implementar nada que escriba la colección. Mover una cuenta → el autor.
+
+## Analizador y comparador (v0.9.8)
+- Ficha compacta: sprite del juego (`G.UI.sprite` en un canvas `.stage`), hexágono de stats, chips de
+  veredicto y combos 1-2-3 (grupos de 4 para fusionar; entre todos, como mucho 2 potenciadores). El resto,
+  plegado en «Más detalles».
+- Comparador: A (azul) y B (rosa) se eligen con las casillas de la lista o con «Cambiar» (buscador);
+  hexágono con los dos, tabla de ganadores 👑, debilidades (`G.Types.mult`) y combos. Poco texto.
+- Estilos de cartas: 🛡️ Aguante pone Coraza/Vigor/Síntesis por encima de mejorar ataques; ⚖️ Equilibrado
+  sube la defensa si llevas 2+ de ataque de más (y al revés); en modo libre siempre sale al menos una
+  carta de mejora del estilo.
 
 ## App Android (`android/`)
 - WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar) e inyecta el

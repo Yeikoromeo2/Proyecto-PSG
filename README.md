@@ -19,15 +19,15 @@ fusionado), *Más potencial* (combinación ideal), *Más fuertes de fábrica*, *
 combinación*, *Más potentes sin vínculos*, *Más aguante*, *Potencia + aguante*, *Naturaleza o
 habilidad a revisar*, *Más usados*, *Nº de Pokédex* o *Rareza*. Tocando uno ves:
 
-- **⚖️ Comparador** (desde 0.9.6; botón *⚖️ Comparar* arriba o en la ficha de cada Pokémon): dos
-  Pokémon cara a cara con el mismo aspecto que la Pokédex del juego (su recuadro con el **sprite
-  animado**, sus chips de tipo y su rareza). Barras enfrentadas en cada stat del juego (vida, ataque,
-  at. esp., defensas, velocidad y total, *de fábrica* o *con su naturaleza*) y en partida (potencia
-  con y sin vínculos, aguante, potencial y cuánto mejora con la combinación), con el ganador
-  resaltado, cuánto le saca y su puesto 🏆. Arriba, un resumen de en qué es mejor cada uno. Debajo,
-  **debilidades y resistencias** con la tabla de tipos del juego (×1,6 / ×0,6 / ×0,3, multiplicadas
-  con dos tipos) y su plan de 4 con el objeto recomendado. Se cambia cada lado escribiendo el nombre
-  o el número (también Pokémon que no tienes).
+- **Ficha compacta** (desde 0.9.8): sprite animado del juego, hexágono de stats, chips (naturaleza,
+  habilidad, objeto, lado, puesto 🏆) y los **combos 1, 2 y 3**: el 1.º es el grupo principal que se
+  fusiona con vínculos; con él completo, el siguiente vínculo empieza el 2.º y luego el 3.º (de recambio y
+  como siguientes cartas a coger). Todo lo demás está en *📊 Más detalles*.
+- **⚖️ Comparador** (desde 0.9.6, rehecho en 0.9.8): marca dos Pokémon con las **casillas** de la lista
+  (A azul, B rosa) y toca *⚖️ Comparar* abajo; o usa *Cambiar* (lista con buscador). Muestra los dos
+  sprites, el **hexágono de stats con los dos encima**, una tabla de **ganadores 👑** por función (stats,
+  potencia, aguante, potencial, debilidades) con el marcador total, a qué es débil cada uno y sus combos
+  1-2-3. Arriba, *📊 De fábrica / 🧬 Con naturaleza*.
 - **Stats de fábrica** 📊: los del juego tal cual (vida, velocidad, multiplicador de daño físico y
   especial, defensas y total base), sin naturaleza ni mejoras, con su puesto entre los 966.
 - **De fábrica → combinación** 🧪: parte de cómo viene (= 100: sin naturaleza, su 1.ª habilidad,
@@ -64,11 +64,6 @@ habilidad a revisar*, *Más usados*, *Nº de Pokédex* o *Rareza*. Tocando uno v
   Vidasfera, Garra Rápida, Chaleco Asalto, Restos, Huevo Suerte…), con lo que suben de daño y
   aguante. Cuando te sale un objeto llevando otro, el ayudante marca con cuál quedarte (y en
   *Automático* lo elige).
-- **Copia de seguridad** (botón **⇄ Copia de partida** del menú principal, o **⇄ Copia** arriba en el
-  Analizador): exporta **tu progreso** (Pokémon, mejoras, naturalezas, MT…) a un archivo de respaldo.
-  Sólo lee: no cambia nada. **No hay importar**: el juego guarda la partida en su servidor y quita los
-  Pokémon que se añaden a mano a una cuenta (lo trata como trampa y lleva una lista de cuentas
-  sospechosas). Para mover o recuperar una cuenta hay que pedírselo al autor del juego.
 - **Fijar tu propio plan**: en *Todos sus ataques* toca 📌 junto a los ataques que quieras
   (hasta 4, también potenciadores). Van primero en el plan y los huecos que dejes se rellenan
   con los mejores calculados. *↺ Volver al calculado* lo deshace. Se guarda en este navegador,
@@ -215,7 +210,8 @@ Heurística sencilla, pensada para ajustarla con la experiencia:
 | Aprendizaje | 230 hasta nivel 10, luego 80 | |
 | Potenciadores (Danza Espada…) | 120–230 | Sólo sirven fusionados en el hueco de tus ataques |
 | Mejorar un potenciador | 260 (540 si está en el plan) | +1 carga / +40 % de potencia |
-| **🛡️ Aguante** | Vigor/Coraza +130, Síntesis +120, Carrera +40, Potencia −40, Reflejos −20, mejorar ataque −20 | Baya Zidra: 900 con < 50 % de vida, 260 con < 80 % |
+| **🛡️ Aguante** | Coraza +310, Vigor +270, Síntesis +250, Carrera +60, Potencia −80, Reflejos −50, mejorar ataque −60 | Baya Zidra: 900 con < 50 % de vida, 260 con < 80 %. En modo libre sale siempre una de Coraza/Vigor/Síntesis |
+| **⚖️ Equilibrado** | Si llevas 2 o más cartas de ataque (Potencia/Reflejos) de más que de defensa (Vigor/Coraza/Síntesis), +70 por cada una a las de defensa (y al revés), hasta +220 | En modo libre sale una de ataque y una de defensa |
 | **⚔️ Daño** | Potencia +120, Reflejos +100, mejorar ataque +60, Vigor/Coraza −70, Síntesis −60 | Baya Zidra: 900 con < 25 %, 260 con < 45 % |
 | **Con Plan ON:** ataque nuevo del plan | +250 | (potenciador del plan: 480) |
 | **Con Plan ON:** mejorar un ataque del plan | +100 | |
