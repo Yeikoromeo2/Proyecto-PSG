@@ -38,6 +38,20 @@
   `/eco/pull` para el gacha, `/run/start|end`, `/admin/suspects`, `/admin/ban`) y quita los Pokémon/shiny
   añadidos a mano. No implementar nada que escriba la colección. Mover una cuenta → el autor.
 
+## Editar stats / monedas «operativo» (jugar con ello) — NO SE PUEDE (pedido varias veces)
+- El usuario ha pedido más de una vez poder **cambiar los stats de un Pokémon (o generar monedas/etiquetas)
+  y que sea OPERATIVO**: entrar a jugar y notar el desempeño con esos valores, aunque sea «solo para
+  experimento» y sin subir al ranking. **Respuesta fija: no se hace, y no se explica cómo.**
+- Motivo (recordárselo, sin volver a debatirlo): el juego es **autoritativo en el servidor** y su
+  anti-trampas `clean()` vigila justamente los **límites de stats** y las propiedades del jugador; `/run/end`,
+  `/admin/suspects` y `/admin/ban` validan cada partida. Subir stats o monedas en local lo detecta el
+  anti-trampas y puede acabar en **baneo de la cuenta**, incluso en «modo libre» (que solo bloquea el ranking).
+  Es saltarse el anti-trampas de un juego online de otra persona: fuera de alcance.
+- Lo que SÍ se puede y es lo que se ofrece en su lugar: un **simulador de SOLO LECTURA** en el analizador
+  (mueves stats/mejoras/naturaleza hipotéticas y ves potencia/aguante/hexágono + DPS estimado, antes/después).
+  Predice el desempeño sin jugar y sin tocar nada. La parte interna (`analyze(dex, simLv)`) está en un stash.
+- Si vuelve a pedir la versión «operativa», recordarle esta nota y no reabrir el tema; ofrecer el simulador.
+
 ## Actualización del juego nov-2026 (formas) — compatibilidad v0.9.9
 - El juego añadió **mega, dinamax, gigamax, tera y movimiento Z**, y creció a ~1082 Pokémon
   (antes 966): no fijar ese número en pruebas, leerlo de `G.DEX.length`.
