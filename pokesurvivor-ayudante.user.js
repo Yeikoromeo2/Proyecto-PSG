@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.10
+// @version      0.9.11
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.10';
+  const VERSION = '0.9.11';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -1887,6 +1887,8 @@
         (el.querySelector('.txt') || el).appendChild(b);
       });
       box.classList.toggle('psg-allcards', !!showAll);
+      const scr = document.getElementById('scr-levelup');
+      if (scr) scr.classList.toggle('psg-allmode', !!showAll);
       if (showAll) sectionHeaders(box, els); else box.querySelectorAll('.psg-sec-h').forEach(h => h.remove());
       paintBar();
       if (!showAll) scheduleAuto(my, best);     // con «Ver todas» no se auto-elige: es para mirar y elegir tú
@@ -2161,9 +2163,12 @@
       #psg-bar .psg-chip{font-family:inherit;font-weight:600;font-size:13px;line-height:1;padding:6px 11px;border-radius:999px;border:1px solid #ffffff40;
         background:#00000055;color:#fff;cursor:pointer;touch-action:manipulation}
       #psg-bar .psg-chip.on{background:#ffd23f;color:#2a2000;border-color:#ffd23f}
-      /* «Ver todas»: las cartas caben con scroll y se separan por secciones. */
-      #cards.psg-allcards{flex-wrap:wrap;align-content:flex-start;max-height:62vh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
-      #cards.psg-allcards>.card{flex:0 0 auto}
+      /* «Ver todas»: una sola barra de scroll (todo el panel), con los interruptores fijos arriba,
+         y las cartas separadas por secciones. Así en el móvil no se queda recortado a 4 cartas. */
+      #cards.psg-allcards{max-height:none !important;overflow:visible !important}
+      #scr-levelup.psg-allmode .box{max-height:100% !important;overflow-y:auto !important;-webkit-overflow-scrolling:touch}
+      #scr-levelup.psg-allmode #psg-bar{position:sticky;top:0;z-index:6;background:rgba(12,18,36,.97);
+        margin:0 -6px;padding:6px 6px 4px;box-shadow:0 4px 8px rgba(0,0,0,.35)}
       #cards .psg-sec-h{flex-basis:100%;width:100%;grid-column:1/-1;box-sizing:border-box;margin:8px 2px 2px;padding:4px 10px;
         font-family:inherit;font-weight:700;font-size:13px;color:#2a2000;background:#ffd23f;border-radius:999px;text-align:center}
       #psg-bar .psg-note{width:100%;text-align:center;font-size:12px;color:#ffaaaa;min-height:0}

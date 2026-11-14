@@ -498,6 +498,14 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(all.secs.length === 3 && /Ataques/.test(all.secs[0]) && /Potenciadores/.test(all.secs[1]) && /Mejoras/.test(all.secs[2]),
     'clasificadas en 3 secciones: ' + all.secs.join(' | '));
   check(all.best && all.forced && all.allcards, 'marca la recomendada, deja scroll y la partida no sube al ranking');
+  // Scroll del panel completo (no un mini-scroll dentro de #cards) y barra de interruptores fija arriba.
+  const scroll = await page.evaluate(() => {
+    const cards = document.getElementById('cards'), scr = document.getElementById('scr-levelup'), bar = document.getElementById('psg-bar');
+    return { allmode: scr.classList.contains('psg-allmode'), cardsOverflow: getComputedStyle(cards).overflowY,
+      barSticky: getComputedStyle(bar).position };
+  });
+  check(scroll.allmode && scroll.cardsOverflow === 'visible' && scroll.barSticky === 'sticky',
+    'Ver todas: scrollea el panel entero (sin mini-scroll) y los interruptores quedan fijos (móvil)');
   // Elegir una carta en «Ver todas» pasa por el camino normal del juego (se cierra la pantalla). Bloqueo de 0,6 s.
   await page.waitForTimeout(800);
   await page.evaluate(() => { window.__psgMod.cfg.auto = false; });

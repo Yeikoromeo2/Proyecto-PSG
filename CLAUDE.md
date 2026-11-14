@@ -75,8 +75,12 @@
   (`fullPool`), clasificadas en 3 secciones con encabezado `.psg-sec-h`: ataques/evoluciones,
   potenciadores y mejoras de stat (`cardCat` + `CAT_ORDER`/`CAT_LABEL`). `allOffer` ordena por sección.
 - Quita el azar → marca la partida como modo libre (`pl.__psgForced`, no sube al ranking). No auto-elige
-  (es para mirar). `#cards.psg-allcards` da scroll. Es seguro con el anti-trampas: elegir una carta es una
-  acción normal del juego; sólo cambiamos qué cartas se ofrecen (como el modo libre).
+  (es para mirar). Es seguro con el anti-trampas: elegir una carta es una acción normal del juego; sólo
+  cambiamos qué cartas se ofrecen (como el modo libre).
+- Scroll (v0.9.11, arreglo móvil): el juego hace `#cards` un GRID dentro de `.box`. Darle a `#cards` su
+  propio `max-height`/`overflow` creaba un mini-scroll que en el móvil se recortaba a ~4 cartas. Ahora
+  `#cards.psg-allcards` va con `overflow:visible` y scrollea TODO el panel (`#scr-levelup.psg-allmode .box`
+  con `overflow-y:auto`), con la barra de interruptores `position:sticky` arriba. Una sola barra de scroll.
 
 ## Analizador y comparador (v0.9.8)
 - Ficha compacta: sprite del juego (`G.UI.sprite` en un canvas `.stage`), hexágono de stats, chips de
