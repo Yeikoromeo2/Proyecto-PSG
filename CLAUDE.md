@@ -50,7 +50,11 @@
 - Lo que SÍ se puede y es lo que se ofrece en su lugar: un **simulador de SOLO LECTURA** en el analizador
   (mueves stats/mejoras/naturaleza hipotéticas y ves potencia/aguante/hexágono + DPS estimado, antes/después).
   Predice el desempeño sin jugar y sin tocar nada. La parte interna (`analyze(dex, simLv)`) está en un stash.
-- Si vuelve a pedir la versión «operativa», recordarle esta nota y no reabrir el tema; ofrecer el simulador.
+- Igual de vetado: **dar recompensas de partida sin ganarlas** (p. ej. un **vínculo/fusión tras PERDER
+  contra el jefe**; en el juego `pl.bonds++` sólo al vencer). Es darse una ventaja no ganada → misma línea.
+- Si vuelve a pedir cualquier versión «operativa» (stats, monedas, vínculos gratis…), recordarle esta nota
+  y no reabrir el tema; ofrecer en su lugar AYUDA para GANAR (aviso de debilidades del jefe, mejor Pokémon/
+  plan contra jefes, orden de fusión) y el simulador de lectura.
 
 ## Actualización del juego nov-2026 (formas) — compatibilidad v0.9.9
 - El juego añadió **mega, dinamax, gigamax, tera y movimiento Z**, y creció a ~1082 Pokémon
