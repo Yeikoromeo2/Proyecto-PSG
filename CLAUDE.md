@@ -70,6 +70,14 @@
   (`BUFF_TOUGH`) sólo donde tiene sentido; `toughInfo.buffTough` guarda el extra con potenciadores, para informar.
 - Objetos nuevos añadidos a `ITEM_FX` (Guante Pégil/Espray Bucal son condicionales físico/especial).
 
+## «Ver todas» en la subida de nivel (v0.9.10)
+- Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida
+  (`fullPool`), clasificadas en 3 secciones con encabezado `.psg-sec-h`: ataques/evoluciones,
+  potenciadores y mejoras de stat (`cardCat` + `CAT_ORDER`/`CAT_LABEL`). `allOffer` ordena por sección.
+- Quita el azar → marca la partida como modo libre (`pl.__psgForced`, no sube al ranking). No auto-elige
+  (es para mirar). `#cards.psg-allcards` da scroll. Es seguro con el anti-trampas: elegir una carta es una
+  acción normal del juego; sólo cambiamos qué cartas se ofrecen (como el modo libre).
+
 ## Analizador y comparador (v0.9.8)
 - Ficha compacta: sprite del juego (`G.UI.sprite` en un canvas `.stage`), hexágono de stats, chips de
   veredicto y combos 1-2-3 (grupos de 4 para fusionar; entre todos, como mucho 2 potenciadores). El resto,

@@ -342,7 +342,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(info.cards === 3 && info.best === 1, `3 cartas y 1 recomendada (${info.cards}/${info.best})`);
   check(info.bar, 'barra con los interruptores en la pantalla de cartas');
   const planLine = await page.evaluate(() => document.querySelector('#psg-bar .psg-plan').textContent);
-  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 4, 'cuatro interruptores y la línea del plan');
+  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 5, 'cinco interruptores (incl. «Ver todas») y la línea del plan');
   await page.click('#psg-bar [data-k="style"]');
   const styleTxt = await page.locator('#psg-bar [data-k="style"]').textContent();
   check(/Aguante/.test(styleTxt) && (await page.locator('#cards .psg-badge').count()) === 3, 'el estilo cambia con un toque y repuntúa las cartas');
@@ -480,6 +480,32 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   // 4) Ranking: en una partida marcada no se sube nada.
   const sent = await page.evaluate(() => G.Ranking.submitSolo({ t: 999, lv: 1, kills: 0, dmg: 0, dex: 25, shiny: false }));
   check(sent === null, 'modo libre: el ranking queda bloqueado para esta partida');
+
+  // 4b) «Ver todas»: muestra TODAS las cartas posibles, clasificadas en secciones (ataques/potenciadores/mejoras).
+  await page.evaluate(() => { window.__psgMod.cfg.free = false; });
+  await openCards();
+  const n3 = await page.evaluate(() => document.querySelectorAll('#cards .card').length);
+  await page.click('#psg-bar [data-k="all"]');
+  await page.waitForFunction(() => document.querySelectorAll('#cards .psg-sec-h').length > 0, null, { timeout: 5000 }).catch(() => {});
+  const all = await page.evaluate(() => ({
+    cards: document.querySelectorAll('#cards .card').length,
+    secs: [...document.querySelectorAll('#cards .psg-sec-h')].map(h => h.textContent),
+    best: !!document.querySelector('#cards .card.psg-best'),
+    forced: window.__psgMod.forced,
+    allcards: document.getElementById('cards').classList.contains('psg-allcards')
+  }));
+  check(all.cards > n3 && all.cards > 10, `«Ver todas»: muestra todas las cartas (${all.cards}, antes ${n3})`);
+  check(all.secs.length === 3 && /Ataques/.test(all.secs[0]) && /Potenciadores/.test(all.secs[1]) && /Mejoras/.test(all.secs[2]),
+    'clasificadas en 3 secciones: ' + all.secs.join(' | '));
+  check(all.best && all.forced && all.allcards, 'marca la recomendada, deja scroll y la partida no sube al ranking');
+  // Elegir una carta en «Ver todas» pasa por el camino normal del juego (se cierra la pantalla). Bloqueo de 0,6 s.
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { window.__psgMod.cfg.auto = false; });
+  await page.click('#cards .card');
+  const closed = await page.waitForFunction(() => document.getElementById('scr-levelup').classList.contains('hidden'), null, { timeout: 5000 }).then(() => true, () => false);
+  check(closed, '«Ver todas»: elegir una carta la aplica y cierra la pantalla (acción normal del juego)');
+  if (SHOTS) { await openCards(); await page.click('#psg-bar [data-k="all"]'); await page.waitForTimeout(500); await page.screenshot({ path: path.join(SHOTS, 'cartas-ver-todas.png') }); await page.evaluate(() => { window.__psgMod.cfg.auto = false; G.RunUI.pick(0); }); }
+  await page.evaluate(() => { window.__psgMod.cfg.free = true; });
 
   // 5) Ajustes guardados.
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('psg.mod.v1') || '{}'));

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.9
+// @version      0.9.10
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.9';
+  const VERSION = '0.9.10';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -1680,7 +1680,7 @@
     const origOffer = G.LevelUp.offer;
     const origShow = G.RunUI.showLevelUp;
 
-    let lastList = null, token = 0, autoT = 0, freeShift = 0, regenerating = false, runSeq = 0;
+    let lastList = null, token = 0, autoT = 0, freeShift = 0, regenerating = false, runSeq = 0, showAll = false;
     let shown = null;              // { level, cb, coop } de la pantalla de cartas abierta
     // Si algo nuestro falla, se avisa en pantalla (para poder mandar una captura) y el juego sigue como siempre.
     let lastErr = 0;
@@ -1771,12 +1771,34 @@
       return pinned.concat(pick).slice(0, n);
     }
 
+    // ---- «Ver todas»: todas las cartas posibles de esta subida, clasificadas en secciones ----
+    // Secciones: ataques (y evoluciones y subir ataque), potenciadores (Maquinación, Fortaleza…) y mejoras
+    // de partida (Potencia, Coraza, Vigor…). Quita el azar, así que la partida queda en modo libre (sin ranking).
+    const CAT_ORDER = ['atk', 'buff', 'stat'];
+    const CAT_LABEL = { atk: '⚔️ Ataques y evoluciones', buff: '✨ Potenciadores', stat: '🛡️ Mejoras de partida' };
+    function cardCat(c) {
+      if (c.type === 'stat') return 'stat';
+      const id = String(c.key || '').split(':')[1] || '';
+      const d = G.Moves && G.Moves.BY_ID && G.Moves.BY_ID[id];
+      return d && d.kind === 'buff' ? 'buff' : 'atk';
+    }
+    function allOffer(pl) {
+      const pool = fullPool(pl);
+      annotate(G, pool, pl, planFor(pl));
+      pool.sort((a, b) => sc(b) - sc(a));                // dentro de cada sección, mejor primero
+      const out = [];
+      for (const k of CAT_ORDER) for (const c of pool) if (cardCat(c) === k) out.push(c);
+      pl.__psgForced = true;                             // ver todas = ventaja: no sube al ranking
+      return out;
+    }
+
     if (MODE !== 'limitado') {
     G.LevelUp.offer = exp(function (plArg, n) {
       try {
         const pl = unX(plArg), k = n || 3;
         let list;
-        if (cfg.free && pl && !coopActive()) list = toPage(freeOffer(pl, k));
+        if (showAll && pl && !coopActive()) list = toPage(allOffer(pl));
+        else if (cfg.free && pl && !coopActive()) list = toPage(freeOffer(pl, k));
         else { list = unX(origOffer.call(G.LevelUp, pl, k)); if (pl) annotate(G, list, pl, planFor(pl)); }
         lastList = list;
         const my = ++token;
@@ -1864,8 +1886,29 @@
         b.textContent = (i === best ? '★ Recomendada · ' : '') + c.__psgW;
         (el.querySelector('.txt') || el).appendChild(b);
       });
+      box.classList.toggle('psg-allcards', !!showAll);
+      if (showAll) sectionHeaders(box, els); else box.querySelectorAll('.psg-sec-h').forEach(h => h.remove());
       paintBar();
-      scheduleAuto(my, best);
+      if (!showAll) scheduleAuto(my, best);     // con «Ver todas» no se auto-elige: es para mirar y elegir tú
+    }
+
+    /** Mete un encabezado antes de la primera carta de cada sección (⚔️/✨/🛡️) en «Ver todas». */
+    function sectionHeaders(box, els) {
+      box.querySelectorAll('.psg-sec-h').forEach(h => h.remove());
+      let last = null;
+      els.forEach((el, i) => {
+        const c = lastList[i]; if (!c) return;
+        const cat = cardCat(c);
+        if (cat !== last) {
+          last = cat;
+          const n = lastList.filter(x => x && cardCat(x) === cat).length;
+          const h = document.createElement('div');
+          h.className = 'psg-sec-h';
+          h.setAttribute('translate', 'no');
+          h.textContent = CAT_LABEL[cat] + ' (' + n + ')';
+          box.insertBefore(h, el);
+        }
+      });
     }
 
     function scheduleAuto(my, best) {
@@ -2036,6 +2079,7 @@
           + '<button type="button" class="psg-chip" data-k="style"></button>'
           + '<button type="button" class="psg-chip" data-k="plan"></button>'
           + '<button type="button" class="psg-chip" data-k="free"></button>'
+          + '<button type="button" class="psg-chip" data-k="all"></button>'
           + '<div class="psg-plan"></div><div class="psg-note"></div>';
         cards.parentNode.insertBefore(bar, cards);
         onTap(bar.querySelector('[data-k="auto"]'), () => {
@@ -2061,6 +2105,13 @@
           if (cfg.free && !coopActive()) regenerate(); else rescore();
           paintBar();
         });
+        onTap(bar.querySelector('[data-k="all"]'), () => {
+          if (coopActive()) { toast('«Ver todas» no se usa en cooperativo'); return; }
+          showAll = !showAll;
+          if (showAll) toast('Ver todas: esta partida ya no sube al ranking');
+          regenerate();     // vuelve a sacar la pantalla (todas clasificadas, o de vuelta a lo normal)
+          paintBar();
+        });
       }
       const a = bar.querySelector('[data-k="auto"]'), f = bar.querySelector('[data-k="free"]');
       a.textContent = cfg.auto ? '🤖 Automático' : '👆 Selección';
@@ -2073,6 +2124,11 @@
       const pb = bar.querySelector('[data-k="plan"]');
       pb.textContent = '📋 Plan: ' + (cfg.plan ? 'ON' : 'OFF');
       pb.classList.toggle('on', cfg.plan);
+      const ab = bar.querySelector('[data-k="all"]');
+      if (ab) {
+        ab.textContent = showAll ? '🗂️ Ver todas: ON' + (lastList ? ' (' + lastList.length + ')' : '') : '🗂️ Ver todas';
+        ab.classList.toggle('on', showAll);
+      }
       const pl = G.Game.player, plan = planFor(pl);
       let line = '';
       if (plan && pl) {
@@ -2105,6 +2161,11 @@
       #psg-bar .psg-chip{font-family:inherit;font-weight:600;font-size:13px;line-height:1;padding:6px 11px;border-radius:999px;border:1px solid #ffffff40;
         background:#00000055;color:#fff;cursor:pointer;touch-action:manipulation}
       #psg-bar .psg-chip.on{background:#ffd23f;color:#2a2000;border-color:#ffd23f}
+      /* «Ver todas»: las cartas caben con scroll y se separan por secciones. */
+      #cards.psg-allcards{flex-wrap:wrap;align-content:flex-start;max-height:62vh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
+      #cards.psg-allcards>.card{flex:0 0 auto}
+      #cards .psg-sec-h{flex-basis:100%;width:100%;grid-column:1/-1;box-sizing:border-box;margin:8px 2px 2px;padding:4px 10px;
+        font-family:inherit;font-weight:700;font-size:13px;color:#2a2000;background:#ffd23f;border-radius:999px;text-align:center}
       #psg-bar .psg-note{width:100%;text-align:center;font-size:12px;color:#ffaaaa;min-height:0}
       #psg-bar .psg-note:empty,#psg-bar .psg-plan:empty{display:none}
       #psg-bar .psg-plan{width:100%;text-align:center;font-size:12px;line-height:1.3;color:#cfe0ff}

@@ -105,8 +105,13 @@ Los dos sirven para comparar tus Pokémon, no son números exactos de la partida
   cartas posibles en ese momento («Cambiar opciones» pasa a las siguientes).
   **La partida en la que lo uses no se sube al ranking**: así no compites con ventaja
   contra quien juega limpio. En cooperativo no se puede activar.
+- **Interruptor 🗂️ Ver todas (desde 0.9.10):** muestra de golpe **todas** las cartas
+  posibles de esa subida, **clasificadas en secciones** (⚔️ Ataques y evoluciones,
+  ✨ Potenciadores, 🛡️ Mejoras de partida), con scroll y la recomendada marcada. Es para
+  elegir tú con todo a la vista; **no elige sola** y, como quita el azar, **esa partida
+  tampoco sube al ranking**. En cooperativo no se puede activar.
 
-Los cuatro interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
+Los interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
 > Las cartas **no se pueden saber antes**: el juego las sortea con `Math.random()` en
 > el momento exacto de subir de nivel. Lo que sí se conoce son todas las cartas
