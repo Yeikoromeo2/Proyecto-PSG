@@ -1,0 +1,50 @@
+name: Extensión Chrome
+
+# Empaqueta la extensión de Chrome (el ayudante dentro de pokesurvivor.com) y la publica en la
+# versión «chrome-latest», con un enlace fijo para descargarla:
+#   https://github.com/Yeikoromeo2/Proyecto-PSG/releases/download/chrome-latest/PokeSurvivor-PSG-chrome.zip
+on:
+  push:
+    paths:
+      - 'chrome-extension/**'
+      - 'pokesurvivor-ayudante.user.js'
+      - '.github/workflows/chrome.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ext-chrome
+  cancel-in-progress: true
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Montar la extensión (ayudante + versión)
+        run: |
+          VERSION=$(grep -m1 '@version' pokesurvivor-ayudante.user.js | awk '{print $3}')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          cp pokesurvivor-ayudante.user.js chrome-extension/helper.js
+          # La versión del manifest siempre igual a la del ayudante.
+          sed -i -E "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" chrome-extension/manifest.json
+          cd chrome-extension
+          zip -r ../PokeSurvivor-PSG-chrome.zip manifest.json helper.js README.md icon16.png icon48.png icon128.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PokeSurvivor-PSG-chrome
+          path: PokeSurvivor-PSG-chrome.zip
+
+      - name: Publicar en «chrome-latest»
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete chrome-latest --yes --cleanup-tag || true
+          gh release create chrome-latest PokeSurvivor-PSG-chrome.zip \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Extensión Chrome · ayudante ${VERSION} · compilación ${GITHUB_RUN_NUMBER}" \
+            --notes "Extensión de Chrome (PC) con el ayudante ${VERSION}. Descomprime el zip y cárgala en chrome://extensions (Modo de desarrollador → Cargar descomprimida). Instrucciones: chrome-extension/README.md"

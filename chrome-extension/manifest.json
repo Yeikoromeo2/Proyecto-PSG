@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "PokéSurvivor · Ayudante PSG",
+  "version": "0.9.11",
+  "description": "Analiza tu colección y te ayuda con las cartas de nivel en PokéSurvivor. Ayudante no oficial (PSG).",
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://pokesurvivor.com/*", "https://www.pokesurvivor.com/*"],
+      "js": ["helper.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

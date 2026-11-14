@@ -92,6 +92,17 @@
   sube la defensa si llevas 2+ de ataque de más (y al revés); en modo libre siempre sale al menos una
   carta de mejora del estilo.
 
+## Extensión de Chrome PC (`chrome-extension/`)
+- Extensión MV3 que inyecta el ayudante en pokesurvivor.com. Content script `run_at: document_start`
+  + `world: MAIN` (así corre en el contexto de la página y pone la trampa de `Object.create` antes del
+  juego, como el modo página de Tampermonkey). Las extensiones de Chrome saltan la CSP de la página, así
+  que aquí NO hay problema de CSP (a diferencia de Firefox, que necesita `@inject-into auto`).
+- Fuente única: `helper.js` es copia del userscript, generada al compilar (gitignored). El workflow
+  `.github/workflows/chrome.yml` copia el userscript, sincroniza la versión del manifest y publica el zip
+  en la release `chrome-latest`. Se carga «descomprimida» → no se auto-actualiza (para eso, Tampermonkey).
+- No se puede probar en Chrome real aquí, pero el comportamiento (MAIN world, document_start) es el mismo
+  que el modo página que ya cubre `tests/e2e.cjs` sin `PSG_SIM_XRAY`.
+
 ## App Android (`android/`)
 - WebView que abre https://pokesurvivor.com tal cual (login del juego sin tocar) e inyecta el
   userscript con `addDocumentStartJavaScript` («modo ayudante», con nombre y contraseña).

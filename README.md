@@ -143,6 +143,19 @@ pero sin el ayudante: Google no permite su inicio de sesión dentro de ventanas 
 > como en un móvil, el juego va igual con y sin él (59,6 fotogramas por segundo en ambos casos).
 > Si notas el juego lento en Firefox, es el navegador: la app usa el motor de Chrome.
 
+## Chrome / Edge / Brave / Opera en PC (extensión)
+
+En el **ordenador** no hace falta Tampermonkey: hay una **extensión** lista para cargar.
+Descarga: <https://github.com/Yeikoromeo2/Proyecto-PSG/releases/download/chrome-latest/PokeSurvivor-PSG-chrome.zip>
+· instrucciones en [`chrome-extension/README.md`](chrome-extension/README.md).
+
+1. Descomprime el zip en una carpeta.
+2. Abre `chrome://extensions`, activa el **Modo de desarrollador** y pulsa **Cargar descomprimida**.
+3. Elige la carpeta. Entra a <https://pokesurvivor.com> y recarga: debe salir **«PSG ✓ funcionando»**.
+
+> Cargada así **no se actualiza sola** (descarga el zip de nuevo y pulsa ↻ cuando haya versión nueva).
+> Si prefieres que se actualice solo, usa el **userscript** con Tampermonkey en el PC.
+
 ### ¿Se actualiza solo?
 
 - **Firefox / Tampermonkey:** sí. El script lleva `@updateURL`, así que el gestor busca versiones
