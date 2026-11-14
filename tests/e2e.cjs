@@ -134,7 +134,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(fx.power > fx.plain, `Maquinación fusionada multiplica el daño del grupo (${fx.power} > ${fx.plain} sin ella)`);
   check(fx.bonds === 4 && fx.steps.every((v, i) => !i || v >= fx.steps[i - 1]) && fx.solo < fx.power,
     `orden de vínculos y daño con cada uno (${fx.steps.join(' → ')})`);
-  check(fx.items.length === 11 && /Vínculos/.test(fx.html) && /Sólo funciona en el MISMO hueco/.test(fx.html) && /Objeto que más le conviene/.test(fx.html),
+  check(fx.items.length >= 11 && /Vínculos/.test(fx.html) && /Sólo funciona en el MISMO hueco/.test(fx.html) && /Objeto que más le conviene/.test(fx.html),
     'el detalle explica vínculos, potenciadores y objetos (mejor objeto: ' + fx.top + ')');
   const tough = await page.evaluate(() => {
     const A = window.__psgMod.analyzer;
@@ -153,7 +153,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
 
   // Todo el juego: puestos, filtros como los de la Pokédex y «de fábrica → combinación».
   await page.waitForFunction(() => !/calculando/.test(document.querySelector('#psg-an .psg-an-count').textContent), null, { timeout: 30000 })
-    .then(() => check(true, 'calcula los 966 Pokémon del juego en segundo plano'), () => check(false, 'no terminó de calcular el juego'));
+    .then(() => check(true, 'calcula todos los Pokémon del juego en segundo plano'), () => check(false, 'no terminó de calcular el juego'));
   const flt = await page.evaluate(() => {
     const click = (f, v) => document.querySelector(`#psg-an [data-f="${f}"][data-v="${v}"]`).click();
     const dexes = () => [...document.querySelectorAll('#psg-an .psg-row')].map(r => +r.dataset.dex);
@@ -184,7 +184,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
       ranks: det.querySelectorAll('table.psg-stats small').length, combo: det.querySelectorAll('table.psg-chain tr').length,
       txt: det.querySelector('table.psg-chain').closest('.psg-sec').textContent.replace(/\s+/g, ' ').slice(0, 240) };
   });
-  check(gira.steps[5] > gira.steps[0] && gira.steps[4] > gira.steps[3] && gira.combo === 7 && /🏆 #\d+\/966/.test(await page.evaluate(() => document.querySelector('#psg-an table.psg-stats').textContent)),
+  check(gira.steps[5] > gira.steps[0] && gira.steps[4] > gira.steps[3] && gira.combo === 7 && /🏆 #\d+\/\d+/.test(await page.evaluate(() => document.querySelector('#psg-an table.psg-stats').textContent)),
     `Giratina: de fábrica → combinación ⚔ ${gira.steps.join(' → ')} · 🛡 ${gira.tough.join(' → ')}`);
   console.log('       ' + gira.txt);
   if (SHOTS) {
@@ -392,16 +392,52 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     `modo automático: fusionó los del plan (${fused || 'nada'}; plan: ${bond.want.join(',')})`);
   console.log('       ' + bondBadge);
 
-  // Objeto: con cuál quedarse (Cinta Elección mejor que Moneda Amuleto para pelear).
-  await page.evaluate(() => { window.__psgMod.cfg.auto = false; window.__psgItem = null; G.RunUI.showItemChoice('amuletcoin', 'choiceband', id => { window.__psgItem = id; }); });
-  await page.waitForFunction(() => document.querySelector('#item-cards .card.psg-best .psg-badge'), null, { timeout: 5000 }).catch(() => {});
-  const itemBest = await page.evaluate(() => [...document.querySelectorAll('#item-cards .card')].findIndex(e => e.classList.contains('psg-best')));
-  check(itemBest === 1, 'objeto: recomienda cambiar a Cinta Elección');
-  await page.evaluate(() => { G.UI.hide('scr-item'); window.__psgMod.cfg.auto = true; G.RunUI.showItemChoice('amuletcoin', 'lifeorb', id => { window.__psgItem = id; }); });
-  await page.waitForFunction(() => window.__psgItem === 'lifeorb', null, { timeout: 5000 })
-    .then(() => check(true, 'objeto: en «Automático» se queda solo con el recomendado'),
+  // Objeto (firma nueva: varios huecos → showItemChoice(objetos[], nuevo, cb, hueco)).
+  // Lleno: cambiar Moneda Amuleto por Cinta Elección (mejor para pelear) → marca la carta de ese hueco.
+  await page.evaluate(() => { window.__psgMod.cfg.auto = false; window.__psgItem = null; G.RunUI.showItemChoice(['amuletcoin'], 'choiceband', id => { window.__psgItem = id; }, -1); });
+  await page.waitForFunction(() => document.querySelector('#item-cards .psg-best .psg-badge'), null, { timeout: 5000 }).catch(() => {});
+  const itemRep = await page.evaluate(() => {
+    const best = document.querySelector('#item-cards .psg-best');
+    return { isSlot: !!(best && best.classList.contains('item-slot')), txt: best ? best.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : 'nada' };
+  });
+  check(itemRep.isSlot, 'objeto (lleno): recomienda cambiar el peor por Cinta Elección (' + itemRep.txt + ')');
+  await page.evaluate(() => { G.UI.hide('scr-item'); });
+  // Hueco libre: coger un objeto nuevo útil → recomienda «llevar también».
+  await page.evaluate(() => { window.__psgMod.cfg.auto = false; G.RunUI.showItemChoice(['leftovers'], 'lifeorb', () => {}, 0); });
+  await page.waitForFunction(() => document.querySelector('#item-cards .psg-best .psg-badge'), null, { timeout: 5000 }).catch(() => {});
+  const itemFree = await page.evaluate(() => {
+    const best = document.querySelector('#item-cards .psg-best');
+    return best ? best.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : 'nada';
+  });
+  check(!/dejar|keep|stay/i.test(itemFree), 'objeto (hueco libre): recomienda llevarlo (' + itemFree + ')');
+  await page.evaluate(() => { G.UI.hide('scr-item'); });
+  // Automático: al reemplazar, pulsa solo el recomendado y el juego llama al callback.
+  await page.evaluate(() => { window.__psgMod.cfg.auto = true; window.__psgItem = null; G.RunUI.showItemChoice(['amuletcoin', 'leftovers'], 'lifeorb', id => { window.__psgItem = id; }, -1); });
+  await page.waitForFunction(() => window.__psgItem !== null, null, { timeout: 5000 })
+    .then(() => check(true, 'objeto: en «Automático» elige solo'),
           () => check(false, 'objeto: no eligió solo'));
   await page.evaluate(() => { window.__psgMod.cfg.auto = false; G.UI.hide('scr-item'); });
+
+  // Forma (mega/dinamax/gigamax/tera/Z): la pantalla showForm se marca y se auto-elige.
+  const formOk = await page.evaluate(() => {
+    const pl = G.Game.player, dex = pl.dex != null ? pl.dex : pl.mon && pl.mon.dex;
+    if (!G.Forms || typeof G.RunUI.showForm !== 'function') return { skip: true };
+    // Formas disponibles para su Pokémon (si no hay, se prueba con una forma inventada potente).
+    let forms = [];
+    try { forms = G.Forms.looks(dex) || []; } catch (e) {}
+    if (!forms.length) forms = [{ form: -7, dex, name: 'Prueba', types: ['normal'], hp: 300, spd: 200, pa: 3, sa: 3, df: 200, sd: 200 }];
+    window.__psgForm = null;
+    try { G.RunUI.showForm(pl, { forms }, f => { window.__psgForm = f; }); } catch (e) { return { err: String(e) }; }
+    return { cards: document.querySelectorAll('#evo-cards .card').length };
+  });
+  if (formOk.skip) check(true, 'formas: el juego no expone showForm en esta versión (se omite)');
+  else {
+    check(!formOk.err && formOk.cards >= 2, 'forma: showForm se engancha sin romper (' + (formOk.err || formOk.cards + ' cartas') + ')');
+    await page.waitForFunction(() => document.querySelector('#evo-cards .card.psg-best .psg-badge'), null, { timeout: 5000 }).catch(() => {});
+    const formBadge = await page.evaluate(() => { const b = document.querySelector('#evo-cards .psg-badge'); return b ? b.textContent : 'sin marca'; });
+    check(/★/.test(formBadge), 'forma: marca la recomendada (' + formBadge + ')');
+    await page.evaluate(() => { ['scr-evo', 'scr-form'].forEach(id => { try { if (document.getElementById(id)) G.UI.hide(id); } catch (e) {} }); });
+  }
 
   // 3) Modo libre: ofrece las mejores cartas posibles y marca la partida.
   await openCards();

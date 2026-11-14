@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.8
+// @version      0.9.9
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -20,8 +20,9 @@
  *      G.LevelUp.offer      las 3 cartas de cada subida de nivel
  *      G.RunUI.showLevelUp  la pantalla de cartas (para poder volver a pintarla)
  *      G.Ranking.submit*    la subida al ranking (para bloquearla en modo libre)
- *      G.RunUI.showBond / showItemChoice  vínculo y objeto: marca el recomendado (y en
- *                           «Automático» lo elige)
+ *      G.RunUI.showBond / showItemChoice / showForm  vínculo, objeto (varios huecos) y
+ *                           cambio de forma (mega, dinamax, gigamax, tera, movimiento Z):
+ *                           marca el recomendado y, en «Automático», lo elige
  *
  *  - Selector: puntúa las cartas ofrecidas, marca la mejor con el motivo y, en
  *    modo «Automático», la elige sola tras un instante. Con «Plan: ON» sigue el
@@ -56,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.8';
+  const VERSION = '0.9.9';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -329,6 +330,8 @@
     Upgrades: o => isFn(o, 'perks') && has(o, 'LIST'),
     Items: o => isFn(o, 'roll') && has(o, 'BY') && has(o, 'LIST'),
     Types: o => isFn(o, 'mult') && has(o, 'CHART') && isFn(o, 'label'),
+    // Formas (mega, dinamax, gigamax, tera, movimiento Z) — módulo nuevo del juego (nov-2026).
+    Forms: o => isFn(o, 'look') && isFn(o, 'data') && isFn(o, 'chosen') && isFn(o, 'looks'),
     U: o => isFn(o, 'clamp') && has(o, 'TYPE_NAME'),
     Icons: o => isFn(o, 'html') && isFn(o, 'canvas') && isFn(o, 'draw'),
     NATURES: o => !!safe(() => o.length === 25 && o[0].id === 'hardy'),
@@ -473,6 +476,8 @@
   // Potenciadores: se relanzan cada ~0,85 s y cada carga dura 7 s, así que mientras estén en el
   // hueco que dispara llegan a su máximo de cargas y se quedan ahí (los primeros segundos, menos).
   const BUFF_RAMP = 0.9;
+  // Cuánto cuentan los potenciadores para el AGUANTE (no para el daño): están poco tiempo y no siempre al máximo.
+  const BUFF_TOUGH = 0.45;
   // Regiones (como las pestañas de la Pokédex del juego: el campo gen de cada Pokémon).
   const GEN_NAMES = ['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Teselia', 'Kalos', 'Alola', 'Galar', 'Paldea'];
   const RARITY_NAME = { 1: 'Común', 2: 'Poco común', 3: 'Rara', 4: 'Épica', 5: 'Legendaria' };
@@ -499,7 +504,21 @@
     focussash: { name: 'Banda Focus', tk: 1.1, note: 'aguanta un golpe mortal cada 60 s' },
     rockyhelmet: { name: 'Casco Dentado', dmg: 1.03, tk: 1.03, note: 'daña a los que le pegan cuerpo a cuerpo' },
     luckyegg: { name: 'Huevo Suerte', dmg: 1.06, tk: 1.06, note: '+30 % de experiencia: más cartas, sobre todo al principio' },
-    amuletcoin: { name: 'Moneda Amuleto', note: '+50 % de monedas al acabar: no ayuda a pelear' }
+    amuletcoin: { name: 'Moneda Amuleto', note: '+50 % de monedas al acabar: no ayuda a pelear' },
+    // --- objetos nuevos (actualización de nov-2026) ---
+    punchingglove: { name: 'Guante Pégil', dmg: 1.3, phys: true, note: '+30 % de daño con ataques físicos de contacto (sólo si pegas físico)' },
+    loadeddice: { name: 'Dado Trucado', dmg: 1.18, note: 'un proyectil o golpe más en los ataques de varios' },
+    throatspray: { name: 'Espray Bucal', dmg: 1.15, spec: true, note: '+25 % de Ataque Especial al cambiar de hueco (sólo si pegas especial)' },
+    metronome: { name: 'Metrónomo', dmg: 1.25, note: 'hasta +48 % de daño si no cambias de hueco (va con el plan fusionado)' },
+    heavydutyboots: { name: 'Botas Robustas', tk: 1.08, note: 'inmune a trampas, lava y agua lenta: aguantas más en el mapa' },
+    superpads: { name: 'Supcojines', tk: 1.1, note: '−30 % de daño de los ataques marcados en el suelo' },
+    safetygoggles: { name: 'Gafas Protectoras', tk: 1.05, note: 'el clima ya no te debilita ni te frena' },
+    covertcloak: { name: 'Capa Furtiva', tk: 1.05, note: 'los enemigos no curan ni escudan a los de tu alrededor' },
+    mirrorherb: { name: 'Hierba Espejo', tk: 1.05, note: 'los poderes de altar te duran el doble' },
+    expcharm: { name: 'Amuleto Exp', dmg: 1.04, tk: 1.04, note: '+20 % de experiencia y +10 % de monedas' },
+    luckincense: { name: 'Incienso Suerte', dmg: 0.85, note: '+60 % de monedas pero −15 % de daño: para farmear, no para pelear' },
+    rareincense: { name: 'Incienso Raro', note: 'más shinys salvajes: no ayuda a pelear' },
+    radargoggles: { name: 'Gafas Radar', note: 'minimapa con jefes, cofres y altares: útil, pero no cambia el daño' }
   };
 
   function analyzerCore(G) {
@@ -630,11 +649,13 @@
         k = k || {}; it = it || {};
         const hpT = (+mx.hp || 0) + (+pk.hp || 0);
         const tp = mx === mon ? tP : G.Stats.taken(share(mx), 'physical'), ts = mx === mon ? tS : G.Stats.taken(share(mx), 'special');
-        const red = Math.min(0.8, (+pk.dmgReduce || 0) + RUN_RED + (k.def || 0) + (it.red || 0));
+        // Los potenciadores (Fortaleza, Agilidad, Acua Aro) no están siempre activos ni al máximo de cargas:
+        // cuentan sólo en parte para el aguante (si no, un Pokémon frágil con Fortaleza parecía un tanque).
+        const red = Math.min(0.8, (+pk.dmgReduce || 0) + RUN_RED + (k.def || 0) * BUFF_TOUGH + (it.red || 0));
         const takenAvg = ((tp + ts) / 2) * (1 - red);                       // enemigos físicos y especiales a medias
-        const spdV = (+mx.spd || 0) * (+pk.spdMul || 1) * (1 + (k.spd || 0)) * (it.spd || 1);
+        const spdV = (+mx.spd || 0) * (+pk.spdMul || 1) * (1 + (k.spd || 0) * BUFF_TOUGH) * (it.spd || 1);
         const spdK = Math.sqrt(Math.max(0.2, spdV / refSpd()));             // correr ayuda a esquivar
-        const regen = (+pk.regen || 0) + (k.regen || 0) + (it.regenPct || 0) * hpT;
+        const regen = (+pk.regen || 0) + (k.regen || 0) * BUFF_TOUGH + (it.regenPct || 0) * hpT;
         return (hpT / Math.max(0.05, takenAvg) + regen * 20) * spdK * (dA ? 1.08 : 1) * (it.tk || 1);
       }
       const toughOf = (k, it) => toughFor(mon, perks, defAbil, k, it);
@@ -775,21 +796,28 @@
         const bestStart = plan.find(m => choices.includes(m.id));
         if (bestStart && start && bestStart.id !== start.id && bestStart.score > start.score * 1.1) startRec = bestStart;
       } catch (e) { /* nada */ }
-      // ---- aguante con su plan fusionado (Fortaleza, Agilidad y Acua Aro cuentan) ----
+      // ---- aguante: defensas base + tus mejoras (los potenciadores del plan son situacionales y van aparte).
+      // Antes se sumaban los potenciadores del plan de daño, y un Pokémon frágil cuyo plan cogía Fortaleza
+      // parecía más tanque que un Snorlax cuyo plan es ofensivo. Ahora el 🛡 refleja el aguante propio.
       const spd = (+mon.spd || 0) * (+perks.spdMul || 1);
       const spdK = Math.sqrt(Math.max(0.2, spd / refSpd()));
-      const tough = toughOf(planFx.k);
+      const tough = toughOf();
+      const toughBuffed = toughOf(planFx.k);        // con los potenciadores del plan, sólo para informar
       const toughInfo = { hp: +mon.hp || 0, hpUp: +perks.hp || 0, df: mon.df, sd: mon.sd, tP, tS, spd, spdK,
         spdUp: +perks.spdMul || 1, regen: +perks.regen || 0, dmgReduce: +perks.dmgReduce || 0, defAbil,
-        buffK: planFx.k, buffTough: tough / tough0 };
-      const perkK = (+perks.atkMul || 1) / Math.max(0.1, +perks.cdMul || 1) * (1 + (+perks.crit || 0) * 0.5);
+        buffK: planFx.k, buffTough: toughBuffed / tough0 };
+      const perkK = (+perks.atkMul || 1) / Math.max(0.1, +perks.cdMul || 1) * (1 + (+perks.crit || 0) * (perks.critDmg != null ? +perks.critDmg : 0.5));
 
       // ---- objetos: cuál le conviene más si te sale en un cofre (según el estilo) ----
       const iw = Math.max(0.1, sw);
-      const items = Object.keys(ITEM_FX).map(id => {
-        const it = ITEM_FX[id], dK = it.dmg || 1, tK = toughOf(planFx.k, it) / tough;
+      // Sólo los objetos que el juego tiene de verdad (así no recomendamos uno quitado en una actualización).
+      const items = Object.keys(ITEM_FX).filter(id => !G.Items || !G.Items.BY || G.Items.BY[id]).map(id => {
+        const it = ITEM_FX[id];
+        // Guante Pégil sólo si pega físico; Espray Bucal sólo si pega especial.
+        const dK = (it.phys && side !== 'physical') || (it.spec && side !== 'special') ? 1 : (it.dmg || 1);
+        const tK = toughOf(planFx.k, it) / tough;
         let name = it.name;
-        try { const g = G.Items && G.Items.BY && G.Items.BY[id]; if (g && g.name) name = String(g.name); } catch (e) { /* nada */ }
+        try { const g = G.Items && G.Items.BY && G.Items.BY[id]; if (g && g.name) name = String(G.T ? G.T(g.name) : g.name); } catch (e) { /* nada */ }
         return { id, name, note: it.note, dK, tK, v: dK * Math.pow(tK, iw) };
       }).sort((a, b) => b.v - a.v);
 
@@ -855,7 +883,41 @@
     }
 
     const monName = d => { try { return String(G.T(G.DEX_BY[d].name)); } catch (e) { return ''; } };
-    return { analyze, natName, typeName, monName, togglePin, resetPins: dex => setPins(dex, []) };
+
+    /**
+     * Puntúa una forma (mega/dinamax/gigamax/tera/Z) para recomendar la mejor en la pantalla de cambio
+     * de forma. `fm` null = forma actual (quedarse igual). Devuelve un número comparable (daño con algo de
+     * aguante según el estilo), con la naturaleza aplicada a las dos para compararlas de igual a igual.
+     */
+    function formScore(dex, fm) {
+      const base = G.DEX_BY[dex];
+      if (!base) return null;
+      let raw;
+      if (!fm) raw = base;
+      else {
+        raw = (fm.hp != null && fm.pa != null) ? fm
+          : (G.Forms && G.Forms.data ? G.Forms.data(fm.form != null ? fm.form : fm) : null);
+        if (!raw) return null;
+      }
+      const nat = (() => { try { return G.Mons.natureOf(dex); } catch (e) { return null; } })();
+      const mon = { dex, name: raw.name || base.name, types: arr(raw.types || base.types),
+        hp: +raw.hp || base.hp, spd: +raw.spd || base.spd, pa: +raw.pa || base.pa, sa: +raw.sa || base.sa,
+        df: +raw.df || base.df, sd: +raw.sd || base.sd };
+      if (nat && nat.up && mon[nat.up] != null) mon[nat.up] *= 1.1;
+      if (nat && nat.down && mon[nat.down] != null) mon[nat.down] *= 0.9;
+      mon.atk = Math.max(mon.pa, mon.sa);
+      const types = arr(mon.types);
+      const side = (() => { try { return G.Stats.sideOf(mon) === 'special' ? 'special' : 'physical'; } catch (e) { return mon.sa > mon.pa ? 'special' : 'physical'; } })();
+      const off = (side === 'special' ? mon.sa : mon.pa) * (types.length === 1 ? 1.2 : 1);   // monotipo pega un +20 %
+      let tP = 1, tS = 1;
+      try { tP = G.Stats.taken(share(mon), 'physical'); tS = G.Stats.taken(share(mon), 'special'); } catch (e) { /* nada */ }
+      const spdK = Math.sqrt(Math.max(0.2, (+mon.spd || 0) / refSpd()));
+      const tough = (+mon.hp || 0) / Math.max(0.05, (tP + tS) / 2) * spdK;
+      const sw = STYLE_W[cfg.style] != null ? STYLE_W[cfg.style] : STYLE_W.equilibrado;
+      return off * Math.pow(Math.max(0.01, tough), sw);
+    }
+
+    return { analyze, natName, typeName, monName, formScore, togglePin, resetPins: dex => setPins(dex, []) };
   }
 
   function installAnalyzer(G, toast, core) {
@@ -1743,13 +1805,30 @@
         return r;
       });
     }
-    // Objeto nuevo llevando ya otro: ¿con cuál te quedas?
+    // Objeto nuevo (ahora el juego lleva varios a la vez): showItemChoice(objetos[], nuevo, cb, hueco=-1).
+    // IMPORTANTE: reenviar los CUATRO argumentos tal cual (antes se perdía el hueco y rompía la pantalla).
     if (isFn(G.RunUI, 'showItemChoice')) {
       const origItem = G.RunUI.showItemChoice;
-      G.RunUI.showItemChoice = exp(function (cur, next, cb) {
-        const r = origItem.call(G.RunUI, cur, next, cb);
-        try { const c = String(cur), n = String(next); setTimeout(() => { try { decorateItem(c, n); } catch (e) { report('el objeto', e); } }, 0); }
-        catch (e) { report('el objeto', e); }
+      G.RunUI.showItemChoice = exp(function (held, next, cb, slot) {
+        const r = origItem.call(G.RunUI, held, next, cb, slot);
+        try {
+          const hv = unX(held), h = Array.isArray(hv) ? hv.map(String) : arr(hv).map(String), n = String(next), sl = slot == null ? -1 : +slot;
+          setTimeout(() => { try { decorateItem(h, n, sl); } catch (e) { report('el objeto', e); } }, 0);
+        } catch (e) { report('el objeto', e); }
+        return r;
+      });
+    }
+    // Cambio de forma (mega, dinamax, gigamax, tera, movimiento Z): showForm(jugador, look, cb).
+    // look.forms son las formas ofrecidas; la pantalla reusa #evo-cards (cartas .evo-go + «quedarse igual»).
+    if (isFn(G.RunUI, 'showForm')) {
+      const origForm = G.RunUI.showForm;
+      G.RunUI.showForm = exp(function (pl, look, cb) {
+        const r = origForm.call(G.RunUI, pl, look, cb);
+        try {
+          const lk = unX(look), dex = (pl && (pl.dex != null ? pl.dex : pl.mon && pl.mon.dex));
+          const forms = arr(lk && lk.forms).map(f => unX(f));
+          setTimeout(() => { try { decorateForm(dex, forms); } catch (e) { report('la forma', e); } }, 0);
+        } catch (e) { report('la forma', e); }
         return r;
       });
     }
@@ -1851,22 +1930,81 @@
         try { G.RunUI.pickBond(best); } catch (e) { report('el vínculo', e); }
       }, Math.max(750, +cfg.delay || DEF.delay));
     }
-    function decorateItem(cur, next) {
+    /**
+     * Pantalla de objeto. El juego lleva varios objetos a la vez:
+     *   hueco libre (slot>=0): cartas «Llevar también» / «Dejarlo».
+     *   lleno (slot<0): una carta .item-slot por objeto que llevas (en el orden de `held`) + una .keep.
+     * Marca la mejor opción y, en «Automático», la pulsa. Si no entiende la pantalla, no toca nada.
+     */
+    function decorateItem(held, next, slot) {
       if (!isShown('scr-item')) return;
-      const els = [...document.querySelectorAll('#item-cards .card')];
-      if (els.length !== 2 || els.some(e => e.querySelector('.psg-badge'))) return;
+      const box = document.getElementById('item-cards');
+      if (!box || box.querySelector('.psg-badge')) return;
       const plan = planFor(G.Game.player), it = plan && plan.items;
-      if (!it || !it[cur] || !it[next]) return;
-      const best = it[next].v > it[cur].v * 1.01 ? 1 : 0, id = best ? next : cur;
-      els.forEach((e, i) => e.classList.toggle('psg-best', i === best));
+      if (!it || !it[next]) return;
+      const val = id => (it[id] ? it[id].v : 0);
+      let bestCard = null, why = '';
+
+      if (slot >= 0) {
+        // Hueco libre: coger un objeto gratis casi siempre conviene (salvo que sea claramente malo).
+        const take = [...box.querySelectorAll('.card')].find(e => !/dejar|keep|stay/i.test(e.textContent));
+        const drop = [...box.querySelectorAll('.card')].find(e => /dejar|keep|stay/i.test(e.textContent));
+        const good = (it[next].dK || 1) >= 0.98 || (it[next].tK || 1) >= 1.01;
+        bestCard = good ? take : drop;
+        why = good ? 'Hueco libre: cógelo (n.º ' + it[next].rank + ' para tu Pokémon)' : 'Mejor déjalo: no te aporta';
+      } else {
+        // Lleno: ¿cambias uno por el nuevo? Se compara el nuevo con el peor que llevas.
+        const slots = [...box.querySelectorAll('.item-slot')];
+        const keep = box.querySelector('.card.keep') || [...box.querySelectorAll('.card')].find(e => /dejar|keep|stay/i.test(e.textContent));
+        if (slots.length && held.length) {
+          let wi = 0; for (let i = 1; i < held.length; i++) if (val(held[i]) < val(held[wi])) wi = i;
+          if (val(next) > val(held[wi]) * 1.01 && slots[wi]) {
+            bestCard = slots[wi];
+            why = 'Cambia ' + (it[held[wi]] && it[held[wi]].rank ? '' : '') + 'el peor que llevas por este (mejor para tu Pokémon)';
+          } else { bestCard = keep; why = 'Quédate con los que llevas: son mejores'; }
+        }
+      }
+      if (!bestCard) return;
+      bestCard.classList.add('psg-best');
       const b = document.createElement('div');
       b.className = 'psg-badge';
       b.setAttribute('translate', 'no');
-      b.textContent = '★ Recomendado · n.º ' + it[id].rank + ' de los objetos para tu Pokémon (' + styleOf().name + ')';
-      (els[best].querySelector('.txt') || els[best]).appendChild(b);
+      b.textContent = '★ ' + why;
+      (bestCard.querySelector('.txt') || bestCard).appendChild(b);
       clearTimeout(itemT);
       if (!cfg.auto) return;
-      itemT = setTimeout(() => { if (cfg.auto && isShown('scr-item')) els[best].click(); }, Math.max(750, +cfg.delay || DEF.delay));
+      itemT = setTimeout(() => { if (cfg.auto && isShown('scr-item') && bestCard.isConnected) bestCard.click(); }, Math.max(750, +cfg.delay || DEF.delay));
+    }
+
+    /**
+     * Pantalla de cambio de forma (mega, dinamax, gigamax, tera, movimiento Z). Las cartas van en #evo-cards:
+     * una .evo-go por forma (en el orden de `forms`) y una última «quedarse igual». Marca y auto-elige la que
+     * más sube la potencia/aguante del Pokémon. Si algo no cuadra, no toca nada (la pantalla del juego sigue).
+     */
+    function decorateForm(dex, forms) {
+      const box = document.getElementById('evo-cards');
+      if (!box || box.offsetParent === null || box.querySelector('.psg-badge') || dex == null) return;
+      const cards = [...box.querySelectorAll('.card')];
+      if (cards.length < 2) return;
+      // Puntúa cada forma y la base; el orden de las cartas es [...formas, quedarse].
+      const scores = forms.map(f => { try { return core.formScore(dex, f); } catch (e) { return null; } });
+      const baseScore = (() => { try { return core.formScore(dex, null); } catch (e) { return null; } })();
+      const all = scores.concat([baseScore]);           // última = quedarse igual
+      if (all.length !== cards.length) return;           // la pantalla no es la que esperamos: no tocar
+      let best = all.length - 1;                          // por defecto, quedarse
+      for (let i = 0; i < all.length; i++) if (all[i] != null && (all[best] == null || all[i] > all[best])) best = i;
+      // Sólo recomendar cambiar si mejora de verdad (si no, quedarse evita perder tipos útiles).
+      const keepIdx = all.length - 1;
+      if (best !== keepIdx && all[keepIdx] != null && !(all[best] > all[keepIdx] * 1.02)) best = keepIdx;
+      cards[best].classList.add('psg-best');
+      const b = document.createElement('div');
+      b.className = 'psg-badge';
+      b.setAttribute('translate', 'no');
+      b.textContent = best === keepIdx ? '★ Mejor quedarse igual' : '★ Recomendada: la que más sube tu potencia';
+      (cards[best].querySelector('.txt') || cards[best]).appendChild(b);
+      clearTimeout(itemT);
+      if (!cfg.auto) return;
+      itemT = setTimeout(() => { if (cfg.auto && cards[best].isConnected) cards[best].click(); }, Math.max(750, +cfg.delay || DEF.delay));
     }
 
     /** Vuelve a sacar las cartas de la pantalla abierta (al activar el modo libre). */

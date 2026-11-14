@@ -38,6 +38,24 @@
   `/eco/pull` para el gacha, `/run/start|end`, `/admin/suspects`, `/admin/ban`) y quita los Pokémon/shiny
   añadidos a mano. No implementar nada que escriba la colección. Mover una cuenta → el autor.
 
+## Actualización del juego nov-2026 (formas) — compatibilidad v0.9.9
+- El juego añadió **mega, dinamax, gigamax, tera y movimiento Z**, y creció a ~1082 Pokémon
+  (antes 966): no fijar ese número en pruebas, leerlo de `G.DEX.length`.
+- Módulo nuevo **`Forms`** (estado de forma): se reconoce por `look`+`data`+`chosen`+`looks` (ver SIG).
+  `Forms.looks(dex)`/`Forms.data(id)` devuelven la forma con sus stats+tipos. Las formas de combate
+  (mega/dinamax) sólo aparecen en partida con su desbloqueo: no se pueden provocar como invitado en las
+  pruebas (por eso el enganche de `showForm` es defensivo y se prueba con una forma inventada/cosmética).
+- **`G.RunUI.showItemChoice` cambió de firma**: ahora `(objetos[], nuevo, cb, hueco=-1)` — el 1.º es un
+  ARRAY (el jugador lleva varios objetos: `item2`/`item3`/`startitem`, `perks.itemSlots`). Hay que
+  reenviar los 4 args. Pantalla llena: `.item-slot` por objeto + `.card.keep`; hueco libre: «llevar/dejar».
+- **`G.RunUI.showForm(pl, look, cb)`**: `look.forms` son las formas; reusa `#evo-cards` (cartas `.evo-go`
+  + «quedarse igual» al final). El ayudante puntúa cada forma (`core.formScore`) y marca/auto-elige.
+- **`perks` nuevos**: `critDmg` (×daño crítico), `itemSlots`, `startItem`. `perkK` usa `crit*critDmg`.
+- **Aguante (🛡)**: ahora es defensas base + mejoras SIN los potenciadores del plan de daño (eran
+  situacionales y hacían que un frágil con Fortaleza pareciera tanque). Los potenciadores cuentan en parte
+  (`BUFF_TOUGH`) sólo donde tiene sentido; `toughInfo.buffTough` guarda el extra con potenciadores, para informar.
+- Objetos nuevos añadidos a `ITEM_FX` (Guante Pégil/Espray Bucal son condicionales físico/especial).
+
 ## Analizador y comparador (v0.9.8)
 - Ficha compacta: sprite del juego (`G.UI.sprite` en un canvas `.stage`), hexágono de stats, chips de
   veredicto y combos 1-2-3 (grupos de 4 para fusionar; entre todos, como mucho 2 potenciadores). El resto,
