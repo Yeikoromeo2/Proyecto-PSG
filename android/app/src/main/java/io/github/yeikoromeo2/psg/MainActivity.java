@@ -14,6 +14,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.DisplayCutout;
 import android.view.Gravity;
+import android.app.UiModeManager;
+import android.content.res.Configuration;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -124,6 +126,14 @@ public class MainActivity extends Activity {
         setContentView(root);
         root.setOnApplyWindowInsetsListener(this::applyInsets);
 
+        // En Android TV (GPU floja para paneles grandes) el juego se dibuja a MENOR resolución y el televisor
+        // lo escala: baja mucho la carga de la GPU y va más fluido. En móvil no se toca.
+        if (isTv()) {
+            root.setClipChildren(false);     // la vista se dibuja escalada más allá de su tamaño: no recortar
+            root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> applyTvScale(root));
+            root.post(() -> applyTvScale(root));
+        }
+
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);                    // partida local, ajustes del juego y del ayudante
@@ -179,6 +189,42 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient());
 
         web.loadUrl(HOME);
+    }
+
+    // ---------------------------------------------------------------- Android TV: dibujar a menor resolución
+
+    /** true si la app corre en un Android TV (se maneja con teclado/ratón/mando, no táctil). */
+    private boolean isTv() {
+        UiModeManager u = (UiModeManager) getSystemService(UI_MODE_SERVICE);
+        return u != null && u.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
+    }
+
+    /** Ancho de render al que se apunta en TV: menos píxeles = menos trabajo para la GPU (el TV escala). */
+    private static final int TV_TARGET_W = 1200;
+
+    /**
+     * Hace que la WebView se dibuje a menos resolución y se escale a pantalla completa (sólo en TV).
+     * Un panel 1080p pasa a dibujarse a ~720p y un 4K a ~1200p: el juego va bastante más fluido en GPUs flojas.
+     * El teclado y el ratón siguen funcionando igual (Android ajusta las coordenadas a la vista escalada).
+     */
+    private void applyTvScale(FrameLayout root) {
+        if (web == null || root == null) return;
+        int w = root.getWidth(), h = root.getHeight();
+        if (w <= 0 || h <= 0) return;
+        float f = w / (float) TV_TARGET_W;
+        if (f < 1.0f) f = 1.0f;
+        if (f > 2.6f) f = 2.6f;             // no escalar tanto que se vea borroso
+        if (f <= 1.01f) return;             // pantalla pequeña: se dibuja normal
+        int lw = Math.round(w / f), lh = Math.round(h / f);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) web.getLayoutParams();
+        if (lp != null && lp.width == lw && lp.height == lh) return;   // ya aplicado para este tamaño
+        if (lp == null) lp = new FrameLayout.LayoutParams(lw, lh);
+        else { lp.width = lw; lp.height = lh; }
+        web.setLayoutParams(lp);
+        web.setPivotX(0f);
+        web.setPivotY(0f);
+        web.setScaleX(f);
+        web.setScaleY(f);
     }
 
     // ---------------------------------------------------------------- modo Google (Chrome en la app)

@@ -109,6 +109,15 @@
   sube la defensa si llevas 2+ de ataque de más (y al revés); en modo libre siempre sale al menos una
   carta de mejora del estilo.
 
+## Android TV (`android/`)
+- La app es compatible con Android TV (manifest: táctil/leanback/gamepad no obligatorios, banner, categoría
+  `LEANBACK_LAUNCHER`). Es la misma WebView; con teclado+ratón el juego va como en el PC (el juego admite PC).
+- No lleva librerías nativas (0 `.so`) → corre en TV de 32 bits (armeabi-v7a) sin problema.
+- **Optimización de rendimiento (v0.9.12-app)**: en TV la WebView se dibuja a MENOR resolución y el televisor
+  la escala (`applyTvScale`: LayoutParams reducidos + `setScaleX/Y`, pivote 0,0, `root.setClipChildren(false)`).
+  `TV_TARGET_W=1200` (1080p→~720p, 4K→~1200p); baja mucho la carga de la GPU (Mali floja). Sólo en TV
+  (`isTv()` por `UiModeManager`), en móvil no cambia. Si sigue lento, bajar `TV_TARGET_W` (downscale más agresivo).
+
 ## Extensión de Chrome PC (`chrome-extension/`)
 - Extensión MV3 que inyecta el ayudante en pokesurvivor.com. Content script `run_at: document_start`
   + `world: MAIN` (así corre en el contexto de la página y pone la trampa de `Object.create` antes del
