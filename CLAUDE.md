@@ -74,6 +74,19 @@
   (`BUFF_TOUGH`) sólo donde tiene sentido; `toughInfo.buffTough` guarda el extra con potenciadores, para informar.
 - Objetos nuevos añadidos a `ITEM_FX` (Guante Pégil/Espray Bucal son condicionales físico/especial).
 
+## Ayuda contra jefes y fusión del plan de una vez (v0.9.12)
+- **Aviso de jefe en partida** (`bossTick`, `setInterval` 500 ms): lee `pl.target` (tiene `boss`, `types`,
+  `dex`, `name`). Si el objetivo es jefe o legendario, muestra una barra `#psg-boss` con sus tipos, con cuál
+  de TUS ataques pega más (por `G.Types.mult`), a qué es débil y «fusiona». Sólo lectura; si no hay jefe, se oculta.
+- **«Contra jefes» en el analizador**: `vsBoss`/`vsBossInfo` por Pokémon (cobertura ofensiva a los tipos
+  legendarios `bossFreq()` + resistencia; la cobertura pesa al cuadrado para no ser casi igual que la potencia).
+  Orden «Mejor contra jefes» (`boss`), puesto `ranks.boss`, y sección `bossHtml` en el detalle (tipos a buscar,
+  fusionar pronto). El `off` por Pokémon depende del plan/seed: NO fijarlo en pruebas; sí es determinista el `cover` global.
+- **«Fusionar el plan de una vez»** (`fuseAllPlan` + botón `#psg-fuseall` en la pantalla de vínculo): encadena
+  `G.RunUI.pickBond` siguiendo el plan GASTANDO sólo los vínculos que ya tienes (el juego une 2 con el 1.er
+  vínculo y +1 con cada uno más; para un grupo de 4 hacen falta 3). Tolera el parpadeo de la pantalla entre
+  fusiones (cuenta `idle`) y para al agotar vínculos → NO crea fusiones gratis. Respeta el bloqueo de ~0,6 s.
+
 ## «Ver todas» en la subida de nivel (v0.9.10)
 - Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida
   (`fullPool`), clasificadas en 3 secciones con encabezado `.psg-sec-h`: ataques/evoluciones,

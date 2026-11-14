@@ -113,6 +113,18 @@ Los dos sirven para comparar tus Pokémon, no son números exactos de la partida
 
 Los interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
+### Ayuda contra jefes (desde 0.9.12)
+
+- **Aviso de jefe en partida:** cuando apuntas a un jefe o legendario, sale arriba una barra con
+  sus **tipos**, con cuál de **tus ataques** le haces más daño (cámbiate a ese hueco), **a qué es
+  débil** y un recordatorio para **fusionar**. Sólo informa, no toca nada.
+- **«Contra jefes» en el analizador:** cada Pokémon tiene una valoración frente a los jefes
+  (cobertura de tus ataques contra los tipos legendarios + lo que aguantas sus ataques), con el
+  orden *Mejor contra jefes*, los tipos que más cubren a los jefes y el recordatorio de fusionar pronto.
+- **Fusionar el plan de una vez:** en la pantalla de vínculo, un botón **🔗 Fusionar el plan de una
+  vez** encadena las fusiones de tu plan en un toque, **gastando sólo los vínculos que ya tienes**
+  (para un grupo de 4 hacen falta 3 vínculos). No crea fusiones que no hayas ganado.
+
 > Las cartas **no se pueden saber antes**: el juego las sortea con `Math.random()` en
 > el momento exacto de subir de nivel. Lo que sí se conoce son todas las cartas
 > posibles y sus probabilidades, que es lo que usa el modo libre.

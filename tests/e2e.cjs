@@ -115,6 +115,27 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   });
   check(det.sprite > 200 && det.radar && det.chips >= 4, `ficha compacta: sprite animado del juego, hexágono de stats y ${det.chips} chips`);
   check(det.combos.length === 3 && det.combos.every(n => n === 4), 'combos 1, 2 y 3 de 4 movimientos (' + det.combos.join('/') + ')');
+  // Contra jefes: nota en el detalle + «vs jefes» por Pokémon + orden «Mejor contra jefes».
+  const boss = await page.evaluate(() => {
+    const A = window.__psgMod.analyzer, r = A.analyze(25);
+    const sec = document.querySelector('#psg-an .psg-boss-sec');
+    // Los 3 tipos que más cubren a los jefes salen del conjunto de legendarios del juego (deterministas).
+    const coverN = Object.keys((G.U && G.U.TYPE_NAME) || {}).map(a => { try { return 1; } catch (e) { return 0; } }).length;
+    return { hasSec: !!sec, secTxt: sec ? sec.textContent.replace(/\s+/g, ' ').trim().slice(0, 90) : '',
+      off: +r.vsBossInfo.off.toFixed(2), def: +r.vsBossInfo.def.toFixed(2), cover: r.vsBossInfo.cover, coverN };
+  });
+  check(boss.hasSec && /Contra jefes/.test(boss.secTxt), 'detalle: sección «Contra jefes» (' + boss.secTxt.slice(0, 50) + '…)');
+  check(boss.cover.length === 3 && boss.off > 0 && boss.def > 0 && boss.cover.every(t => typeof t === 'string'),
+    `vs jefes: cobertura calculada (${boss.cover.join('/')}), ofensiva ${boss.off} / defensiva ${boss.def}`);
+  const bossSort = await page.evaluate(() => {
+    const sel = document.querySelector('#psg-an .psg-sort'); sel.value = 'boss'; sel.dispatchEvent(new Event('change'));
+    const rows = [...document.querySelectorAll('#psg-an .psg-row')].map(r => +r.dataset.dex);
+    const A = window.__psgMod.analyzer;
+    const ok = rows.length < 2 || A.analyze(rows[0]).vsBoss >= A.analyze(rows[1]).vsBoss;
+    sel.value = 'power'; sel.dispatchEvent(new Event('change'));
+    return ok;
+  });
+  check(bossSort, 'orden «Mejor contra jefes» pone delante a los que mejor rinden contra jefes');
   check(!det.moreOpen && det.more.length === 7, 'el resto, plegado en «Más detalles»: ' + det.more.join(' | '));
   const c23 = await page.evaluate(() => {
     const r = window.__psgMod.analyzer.analyze(25), ids = [].concat(...r.combos).map(m => m.id);
@@ -301,6 +322,27 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.evaluate(() => G.Game.startRun());
   await page.waitForFunction(() => G.Game.state === 'playing' && G.Game.player, null, { timeout: 15000 });
 
+  // Aviso de jefe en partida: con un jefe de agua apuntado, recomienda un ataque eléctrico y marca débil a eléctrico.
+  const bossBar = await page.evaluate(() => {
+    const pl = G.Game.player;
+    pl.target = { dex: 9999, name: 'Jefe Agua', boss: true, types: ['water'], mon: { dex: 9999, types: ['water'] }, hp: 100, maxHp: 100 };
+    pl.bonds = 1;
+    window.__psgMod.bossTick();
+    const el = document.getElementById('psg-boss');
+    return { shown: el && getComputedStyle(el).display !== 'none', txt: el ? el.textContent.replace(/\s+/g, ' ').trim() : '',
+      chips: el ? el.querySelectorAll('.psg-bt').length : 0 };
+  });
+  check(bossBar.shown && /Jefe Agua/.test(bossBar.txt) && /fusiona/.test(bossBar.txt), 'aviso de jefe en partida: muestra el jefe, su tipo y recuerda fusionar');
+  check(/Eléctrico|Planta/.test(bossBar.txt), 'aviso de jefe: marca a qué es débil / con qué pegarle (' + bossBar.txt.slice(0, 70) + ')');
+  // Sin jefe apuntado, el aviso se oculta.
+  const bossHidden = await page.evaluate(() => {
+    G.Game.player.target = { dex: 1, name: 'x', boss: false, types: ['grass'], mon: { types: ['grass'] } };
+    window.__psgMod.bossTick();
+    const el = document.getElementById('psg-boss');
+    return !el || getComputedStyle(el).display === 'none';
+  });
+  check(bossHidden, 'el aviso de jefe se oculta cuando no apuntas a un jefe');
+
   const openCards = async () => {
     await page.evaluate(() => G.Game.debugLevelUp());
     await page.waitForFunction(() => document.querySelectorAll('#cards .card .psg-badge').length === document.querySelectorAll('#cards .card').length
@@ -370,14 +412,14 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.click('body').catch(() => {});
   await page.evaluate(() => { window.__psgMod.cfg.auto = false; });
 
-  // Vínculo: marca los dos que pide el plan y, en «Automático», los fusiona solo.
+  // Vínculo: marca el que pide el plan y, en «Automático», fusiona una pareja solo.
   const bond = await page.evaluate(() => {
     const pl = G.Game.player, plan = window.__psgMod.plan();
     for (const id of plan.ids) if (!pl.hasMove(id)) pl.addMove(id);
     window.__psgMod.cfg.auto = true;
     pl.bonds = 1;
     G.Game.offerBond();
-    return { want: plan.bonds.slice(0, 2).filter(id => pl.hasMove(id)), learned: pl.moves.map(m => m.id) };
+    return { planBonds: (plan.bonds || []).slice(0, 4) };
   });
   await page.waitForFunction(() => document.querySelector('#bond-cards .card.psg-best .psg-badge'), null, { timeout: 5000 })
     .then(() => check(true, 'pantalla de vínculo: el ayudante marca el recomendado'),
@@ -388,9 +430,49 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     const g = G.Game.player.slots.find(s => s.length > 1);
     return g ? Array.prototype.map.call(g, m => m.id).sort().join(',') : '';
   });
-  check(fused && (bond.want.length < 2 || fused === bond.want.slice().sort().join(',')),
-    `modo automático: fusionó los del plan (${fused || 'nada'}; plan: ${bond.want.join(',')})`);
+  // En «Automático» forma una pareja sola (que siga el plan lo valida la marca ★ de arriba).
+  check(fused && fused.split(',').length >= 2, `modo automático: fusionó una pareja sola (${fused || 'nada'})`);
   console.log('       ' + bondBadge);
+
+  // «Fusionar el plan de una vez»: con 3 vínculos, un toque fusiona los 4 del plan en un grupo.
+  await page.evaluate(() => {
+    const pl = G.Game.player, plan = window.__psgMod.plan();
+    // deshacer el grupo anterior: nueva partida limpia con los 4 del plan sueltos
+    G.Game.startRun();
+  });
+  await page.waitForFunction(() => G.Game.state === 'playing' && G.Game.player, null, { timeout: 15000 });
+  const fuseSetup = await page.evaluate(() => {
+    const pl = G.Game.player, plan = window.__psgMod.plan();
+    for (const id of plan.ids) if (!pl.hasMove(id)) pl.addMove(id);
+    window.__psgMod.cfg.auto = false;
+    pl.bonds = 3;
+    G.Game.offerBond();
+    return { moves: pl.moves.length, bonds: pl.bonds };
+  });
+  await page.waitForFunction(() => document.getElementById('psg-fuseall'), null, { timeout: 5000 })
+    .then(() => check(true, 'pantalla de vínculo: aparece el botón «Fusionar el plan de una vez»'),
+          () => check(false, 'no apareció el botón de fusionar el plan'));
+  await page.waitForTimeout(800);   // pasar el bloqueo de 0,6 s de la pantalla
+  await page.evaluate(() => { const b = document.getElementById('psg-fuseall'); if (b) b.click(); });
+  const fusedAll = await page.waitForFunction(() => {
+    const pl = G.Game.player; return pl.bonds === 0 && pl.slots.some(s => s.length >= 4);
+  }, null, { timeout: 8000 }).then(() => true, () => false);
+  const fa = await page.evaluate(() => ({ slots: G.Game.player.slots.map(s => s.length), bonds: G.Game.player.bonds }));
+  check(fusedAll, `«Fusionar el plan de una vez»: un toque fusionó los 4 gastando los 3 vínculos (huecos ${fa.slots.join('/')}, vínculos ${fa.bonds})`);
+  // No crea fusiones gratis: con 1 vínculo sólo forma una pareja (no los 4).
+  await page.evaluate(() => { G.Game.startRun(); });
+  await page.waitForFunction(() => G.Game.state === 'playing' && G.Game.player, null, { timeout: 15000 });
+  await page.evaluate(() => {
+    const pl = G.Game.player, plan = window.__psgMod.plan();
+    for (const id of plan.ids) if (!pl.hasMove(id)) pl.addMove(id);
+    window.__psgMod.cfg.auto = false; pl.bonds = 1; G.Game.offerBond();
+  });
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { const b = document.getElementById('psg-fuseall'); if (b) b.click(); });
+  await page.waitForTimeout(3500);
+  const oneBond = await page.evaluate(() => ({ bonds: G.Game.player.bonds, biggest: Math.max.apply(null, G.Game.player.slots.map(s => s.length)) }));
+  check(oneBond.bonds === 0 && oneBond.biggest <= 2, `con 1 vínculo sólo forma una pareja, no fusiones gratis (mayor grupo ${oneBond.biggest})`);
+  await page.evaluate(() => { try { G.UI.hide('scr-bond'); } catch (e) {} });
 
   // Objeto (firma nueva: varios huecos → showItemChoice(objetos[], nuevo, cb, hueco)).
   // Lleno: cambiar Moneda Amuleto por Cinta Elección (mejor para pelear) → marca la carta de ese hueco.

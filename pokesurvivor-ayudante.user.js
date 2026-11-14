@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.11
+// @version      0.9.12
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.11';
+  const VERSION = '0.9.12';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -534,6 +534,17 @@
     })());
     const natName = n => (n ? nm(n.n) : '');
 
+    // Tipos de los jefes: frecuencia de cada tipo entre los legendarios del juego (para medir «vs jefes»).
+    let bossFreqV = null;
+    function bossFreq() {
+      if (bossFreqV) return bossFreqV;
+      const f = {}; let tot = 0;
+      for (const p of arr(G.DEX)) { if (!p || !p.leg) continue; for (const t of arr(p.types)) { f[t] = (f[t] || 0) + 1; tot++; } }
+      bossFreqV = { f, tot: tot || 1 };
+      return bossFreqV;
+    }
+    const typeMul = (atk, defTypes) => { try { return +G.Types.mult(atk, toPage(arr(defTypes))) || 1; } catch (e) { return 1; } };
+
     // Plan fijado a mano (por cuenta: la fecha de creación de la partida la identifica).
     const acct = () => String((save() && save().created) || 'local');
     function pinsOf(dex) { const a = loadPins()[acct()] || {}; return Array.isArray(a[dex]) ? a[dex].slice(0, 4) : []; }
@@ -868,6 +879,26 @@
         bestAbSlot: comboAb.slot
       };
 
+      // ---- contra jefes: cobertura ofensiva a los tipos legendarios y resistencia a sus ataques ----
+      const bf = bossFreq(), myTypes = arr(mon.types);
+      const atkTypes = [...new Set(plan.filter(m => !m.buff).map(m => m.type))];
+      let offSum = 0, defSum = 0;
+      for (const t in bf.f) {
+        const w = bf.f[t];
+        offSum += w * (atkTypes.length ? Math.max.apply(null, atkTypes.map(a => typeMul(a, [t]))) : 1);  // mi mejor ataque vs un jefe tipo t
+        defSum += w * typeMul(t, myTypes);                                                                 // daño que me hace un jefe tipo t
+      }
+      const bossOff = offSum / bf.tot, bossDef = defSum / bf.tot;
+      const powerV = planFx.dmg * perkK;
+      // La cobertura y la resistencia de tipos pesan al cuadrado: así «vs jefes» de verdad mide el encaje
+      // contra legendarios y no es casi lo mismo que la potencia bruta.
+      const vsBoss = powerV * Math.pow(bossOff / Math.max(0.6, bossDef), 2) * Math.max(0.4, Math.sqrt(tough / 120));
+      // Los 3 tipos de ataque que más cubren a los jefes (para buscarlos en las cartas / MT).
+      const bossCover = Object.keys((G.U && G.U.TYPE_NAME) || {}).map(a => [a, Object.keys(bf.f).reduce((s2, t) => s2 + bf.f[t] * typeMul(a, [t]), 0) / bf.tot])
+        .sort((x, y) => y[1] - x[1]).slice(0, 3).map(x => x[0]);
+      const vsBossInfo = { off: bossOff, def: bossDef, cover: bossCover,
+        myBest: atkTypes.filter(a => Object.keys(bf.f).some(t => typeMul(a, [t]) >= 1.5)) };
+
       const hasStartUpg = !!(s && s.pupg && s.pupg[dex] && s.pupg[dex].start);
       const upgLv = Object.values((s && s.pupg && s.pupg[dex]) || {}).reduce((a, v) => a + (+v || 0), 0);
 
@@ -877,7 +908,7 @@
         nat, rolled, natChanged: !!(s && s.pnat && s.pnat[dex]), natV, natWhy, bestNat,
         abil: cur, abilOpts, abV, abWhy, abSlot: ab.slot,
         moves, attacks, plan, bonds, combos: combosAll, comboDmg: combosAll.map(g => groupFx(g).dmg * perkK), steps, planFx, items, style: cfg.style, evoStats, tmBuy, start, startRec, hasStartUpg, upgLv, custom: pinned.length > 0,
-        used: (s && s.pused && +s.pused[dex]) || 0,
+        used: (s && s.pused && +s.pused[dex]) || 0, vsBoss, vsBossInfo,
         power: planFx.dmg * perkK, solo: steps[0] * perkK, perkK, tough, toughInfo
       };
     }
@@ -990,6 +1021,7 @@
         n: all.length, power: rk(r => r.power), tough: rk(r => r.tough),
         fab: rk(r => r.combo.chain[0].p), fabT: rk(r => r.combo.chain[0].t),
         pot: rk(r => r.combo.potential.p), potT: rk(r => r.combo.potential.t),
+        boss: rk(r => r.vsBoss || 0),
         hp: rk(st('hp')), spd: rk(st('spd')), pa: rk(st('pa')), sa: rk(st('sa')), df: rk(st('df')), sd: rk(st('sd')), bst: rk(st('bst'))
       };
     }
@@ -1038,6 +1070,7 @@
             <option value="power">Más potentes (plan fusionado)</option>
             <option value="pot">Más potencial (combinación ideal)</option>
             <option value="fab">Más fuertes de fábrica</option>
+            <option value="boss">Mejor contra jefes</option>
             <option value="gain">Más mejora con la combinación</option>
             <option value="solo">Más potentes sin vínculos</option>
             <option value="tough">Más aguante</option>
@@ -1164,6 +1197,7 @@
       const by = {
         pot: (a, b) => b.combo.potential.p - a.combo.potential.p,
         fab: (a, b) => b.combo.chain[0].p - a.combo.chain[0].p,
+        boss: (a, b) => (b.vsBoss || 0) - (a.vsBoss || 0),
         gain: (a, b) => gainOf(b) - gainOf(a),
         rar: (a, b) => b.rarity - a.rarity || a.dex - b.dex,
         power: (a, b) => b.power - a.power,
@@ -1235,6 +1269,7 @@
       return `<div class="psg-det">
         ${heroHtml(r, nv, av)}
         ${combosHtml(r)}
+        ${bossHtml(r)}
         <p class="psg-det-act"><button type="button" class="psg-mini psg-big${selK ? ' on-' + selK : ''}" data-sel="${r.dex}">${selK ? '✓ Elegido para comparar (' + selK.toUpperCase() + ')' : '⚖️ Elegir para comparar'}</button>
           ${cmp.a && cmp.b ? '<button type="button" class="psg-mini psg-big" data-tray="go">Comparar ahora</button>' : ''}</p>
         <details class="psg-more"${moreOpen ? ' open' : ''}><summary>📊 Más detalles (stats de fábrica, combinación, naturaleza, habilidad, aguante, objetos, ataques)</summary>
@@ -1302,6 +1337,22 @@
       return `<div class="psg-combos${compact ? ' compact' : ''}">${r.combos.map((g, i) => `<div class="psg-combo">
           <b class="n">${i + 1}</b><div class="mvs">${g.map(moveTile).join('')}</div>
           ${compact ? '' : `<small class="pct">⚔ ${Math.round(100 * r.comboDmg[i] / top)} %</small>`}</div>`).join('')}</div>`;
+    }
+    /** Nota «contra jefes»: cómo le va frente a los legendarios y qué buscar para ir preparado. */
+    function bossHtml(r) {
+      const vb = r.vsBossInfo || {};
+      const rk = ranks && ranks.boss ? ranks.boss.get(r.dex) : null;
+      const cover = (vb.cover || []).map(chip).join(' ');
+      const mine = (vb.myBest || []);
+      const bonds = r.bonds && r.bonds.length ? r.bonds.map(m => esc(m.name)).join(' → ') : '';
+      const offTxt = vb.off >= 1.05 ? '<span class="up">buena</span>' : vb.off <= 0.92 ? '<span class="dn">floja</span>' : 'normal';
+      const defTxt = vb.def <= 0.95 ? '<span class="up">aguanta bien</span>' : vb.def >= 1.08 ? '<span class="dn">le hacen mucho</span>' : 'normal';
+      return `<div class="psg-sec psg-boss-sec"><h4>🐲 Contra jefes${rk ? ' <small>🏆 #' + rk + '</small>' : ''}</h4>
+        <p>Cobertura de ataque: ${offTxt}. Resistencia a sus ataques: ${defTxt}.</p>
+        ${mine.length ? `<p>✅ Tus ataques fuertes contra jefes: ${mine.map(chip).join(' ')}.</p>` : '<p>⚠️ Ninguno de tus ataques del plan es muy eficaz contra la mayoría de jefes.</p>'}
+        ${cover ? `<p>🎯 Tipos que más cubren a los jefes (búscalos en cartas/MT): ${cover}.</p>` : ''}
+        ${bonds ? `<p>🔗 Para el jefe, <b>fusiona pronto</b> (orden: ${bonds}) y prioriza aguante.</p>` : ''}
+      </div>`;
     }
     /** Pone los sprites animados del juego en los huecos .psg-stage-slot (como en su Pokédex). */
     function mountSprites(root, w, h) {
@@ -1427,6 +1478,8 @@
       #psg-an .psg-row.miss{opacity:.72}
       #psg-an table.psg-stats td,#psg-an table.psg-chain td,#psg-an table.psg-chain th{padding:3px 6px;text-align:left}
       #psg-an table.psg-chain tr.tot td{border-top:1px solid #ffffff33;color:#ffe48a}
+      #psg-an .psg-boss-sec{background:#2a1530;border-radius:10px;padding:2px 10px;margin:6px 0}
+      #psg-an .psg-boss-sec .up{color:#7be495;font-weight:700}#psg-an .psg-boss-sec .dn{color:#ff9a9a;font-weight:700}
       #psg-an small.up{color:#7be495}
       #psg-an small.dn{color:#ff9a9a}
       #psg-an .psg-row{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(70px,1fr) minmax(0,1.6fr);gap:8px;align-items:center;
@@ -1943,12 +1996,9 @@
         return { el, m };
       });
     }
-    function decorateBond() {
-      if (!bondOpt || !isShown('scr-bond')) return;
-      const cards = bondCards();
-      if (!cards.length || cards.some(c => c.el.querySelector('.psg-badge'))) return;
+    /** Índice de la carta de vínculo recomendada: la que toca por el plan (o la que más suma). */
+    function bondBest(cards) {
       const plan = planFor(G.Game.player);
-      // Primero, los del plan en el orden de sus vínculos; si no, el que más daño hace.
       const rank = m => {
         if (!m) return 1e9;
         const i = plan && plan.bonds ? plan.bonds.indexOf(m.id) : -1;
@@ -1957,6 +2007,65 @@
       };
       let best = 0;
       cards.forEach((c, i) => { if (rank(c.m) < rank(cards[best].m)) best = i; });
+      return best;
+    }
+    let fusing = false;
+    /**
+     * Fusiona el plan de una sola vez: encadena las pantallas de vínculo eligiendo lo que toca,
+     * GASTANDO sólo los vínculos que ya tienes (el juego une 2 con el 1.er vínculo y +1 con cada uno más).
+     * No crea vínculos: cuando se acaban, para. Respeta el bloqueo de ~0,6 s de cada pantalla.
+     */
+    function fuseAllPlan() {
+      if (fusing || !isFn(G.RunUI, 'pickBond')) return;
+      fusing = true;
+      let steps = 0, idle = 0;
+      const delay = Math.max(680, +cfg.delay || DEF.delay);   // el juego bloquea cada pantalla ~0,6 s
+      const tick = () => {
+        const pl = G.Game && G.Game.player;
+        if (!pl || steps++ > 16) { fusing = false; return; }
+        if (isShown('scr-bond')) {
+          idle = 0;
+          const cards = bondCards();
+          if (cards.length) { try { G.RunUI.pickBond(bondBest(cards)); } catch (e) { /* bloqueado: se reintenta */ } }
+          setTimeout(tick, delay);     // tras cada elección el juego reabre la pantalla si quedan vínculos (o pide el 2.º de la pareja)
+        } else {
+          // Entre fusiones la pantalla parpadea: sólo se da por terminado si ya no quedan vínculos o lleva un rato sin pantalla.
+          if ((pl.bonds || 0) <= 0 || ++idle >= 3) { fusing = false; return; }
+          setTimeout(tick, 200);
+        }
+      };
+      setTimeout(tick, 100);
+    }
+    /** Botón «Fusionar el plan» en la pantalla de vínculo (gasta los vínculos que tengas). */
+    function bondButton() {
+      const box = document.getElementById('bond-cards');
+      if (!box || !box.parentNode) return;
+      const pl = G.Game.player, n = (pl && pl.bonds) || 0;
+      // Con 1 vínculo sólo hay una fusión que hacer: la recomendación normal basta; el botón es para encadenar varias.
+      let btn = document.getElementById('psg-fuseall');
+      if (n < 1) { if (btn) btn.remove(); return; }
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'psg-fuseall';
+        btn.type = 'button';
+        btn.setAttribute('translate', 'no');
+        btn.style.cssText = 'display:block;margin:6px auto;font:700 13px/1 inherit;padding:8px 14px;border-radius:999px;'
+          + 'border:0;background:#ff8ad8;color:#2a0020;cursor:pointer';
+        onTap(btn, () => { btn.disabled = true; fuseAllPlan(); });
+        box.parentNode.insertBefore(btn, box);
+      }
+      btn.textContent = '🔗 Fusionar el plan de una vez (' + n + ' vínculo' + (n === 1 ? '' : 's') + ')';
+      btn.disabled = fusing;
+    }
+    function decorateBond() {
+      if (!bondOpt || !isShown('scr-bond')) return;
+      const cards = bondCards();
+      if (!cards.length) return;
+      // Botón «fusionar el plan» de una vez (sólo si hay un grupo del plan que completar y más de un vínculo por delante).
+      bondButton();
+      if (cards.some(c => c.el.querySelector('.psg-badge'))) return;
+      const plan = planFor(G.Game.player);
+      const best = bondBest(cards);
       cards.forEach((c, i) => {
         c.el.classList.toggle('psg-best', i === best);
         if (i !== best || !c.m) return;
@@ -1969,9 +2078,9 @@
         (c.el.querySelector('.txt') || c.el).appendChild(b);
       });
       clearTimeout(bondT);
-      if (!cfg.auto || !isFn(G.RunUI, 'pickBond')) return;
+      if (!cfg.auto || fusing || !isFn(G.RunUI, 'pickBond')) return;
       bondT = setTimeout(() => {
-        if (!cfg.auto || !isShown('scr-bond')) return;
+        if (!cfg.auto || fusing || !isShown('scr-bond')) return;
         try { G.RunUI.pickBond(best); } catch (e) { report('el vínculo', e); }
       }, Math.max(750, +cfg.delay || DEF.delay));
     }
@@ -2184,6 +2293,66 @@
     mod.plan = () => planFor(G.Game.player);
     mod.fullPool = () => (G.Game.player ? fullPool(G.Game.player) : []);
     Object.defineProperty(mod, 'forced', { get: runForced });
+
+    // ---------------- aviso de jefe en partida (sólo lectura) ----------------
+    // Lee el enemigo al que apuntas (pl.target: tipos, nombre, si es jefe). Si es un jefe o legendario,
+    // muestra una barra con sus tipos, con cuál de TUS ataques le haces más daño (cambia al hueco que diga),
+    // a qué es débil y un recordatorio para fusionar. No cambia nada del juego.
+    const typeNm = t => (G.U && G.U.TYPE_NAME && G.U.TYPE_NAME[t]) || t;
+    const typeChip = t => '<span class="psg-bt" style="background:' + ((G.U.TYPE_COLOR || {})[t] || '#666') + '">' + typeNm(t) + '</span>';
+    const multTo = (atk, types) => { try { return +G.Types.mult(atk, toPage(arr(types))) || 1; } catch (e) { return 1; } };
+    const ATK_ALL = () => Object.keys((G.U && G.U.TYPE_NAME) || {});
+    let bossEl = null, bossSeen = '';
+    function bossBar() {
+      if (bossEl) return bossEl;
+      bossEl = document.createElement('div');
+      bossEl.id = 'psg-boss';
+      bossEl.setAttribute('translate', 'no');
+      const css = document.createElement('style');
+      css.textContent = `
+        #psg-boss{position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:2147483646;max-width:94vw;
+          display:none;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;padding:5px 12px;border-radius:12px;
+          background:rgba(120,20,20,.94);color:#fff;font:600 12px/1.3 sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.5);pointer-events:none}
+        #psg-boss .psg-bt{display:inline-block;padding:1px 6px;border-radius:6px;font-size:11px;color:#fff;text-shadow:0 1px 1px #0008}
+        #psg-boss b{color:#ffd23f}
+        #psg-boss .ok{color:#9affb0}#psg-boss .no{color:#ff9a9a}
+        @media (max-width:560px){#psg-boss{font-size:11px;padding:4px 9px}}`;
+      (document.head || document.documentElement).appendChild(css);
+      (document.body || document.documentElement).appendChild(bossEl);
+      return bossEl;
+    }
+    function bossTick() {
+      try {
+        const pl = G.Game && G.Game.player, st = G.Game && G.Game.state;
+        const playing = st === 'playing' || st === 'held' || st === 'choice';
+        const t = pl && pl.target;
+        const isLeg = t && G.DEX_BY[t.dex] && G.DEX_BY[t.dex].leg;
+        if (!pl || !playing || !t || !(t.boss || isLeg)) { if (bossEl) bossEl.style.display = 'none'; bossSeen = ''; return; }
+        const bt = arr(t.types || (t.mon && t.mon.types));
+        if (!bt.length) { if (bossEl) bossEl.style.display = 'none'; return; }
+        const el = bossBar();
+        const key = t.dex + ':' + bt.join(',') + ':' + (pl.bonds || 0) + ':' + movesOf(pl).map(m => m.id).join(',');
+        if (key === bossSeen) { el.style.display = 'flex'; return; }   // sin cambios: no repintar
+        bossSeen = key;
+        // De tus ataques actuales, cuál pega más fuerte (por tipo) a este jefe.
+        const mine = movesOf(pl).filter(m => m.type && (!m.kind || m.kind !== 'buff'));
+        const scored = mine.map(m => ({ m, k: multTo(m.type, bt) })).sort((a, b) => b.k - a.k);
+        const best = scored[0];
+        // Tipos a los que es débil (para buscar ese ataque en las cartas).
+        const weak = ATK_ALL().map(a => [a, multTo(a, bt)]).filter(x => x[1] >= 1.5).sort((a, b) => b[1] - a[1]).slice(0, 4);
+        const name = (() => { try { return G.T ? G.T(t.name) : t.name; } catch (e) { return t.name; } })();
+        let html = '⚠️ <b>' + esc(name) + '</b> ' + bt.map(typeChip).join(' ');
+        if (best && best.k >= 1.2) html += ' · usa <b>' + esc(moveName(G, best.m)) + '</b> <span class="ok">×' + best.k.toFixed(1) + '</span>';
+        else if (best && best.k <= 0.8) html += ' · tus ataques le hacen poco <span class="no">×' + best.k.toFixed(1) + '</span>';
+        if (weak.length) html += ' · débil a ' + weak.map(w => typeChip(w[0])).join(' ');
+        if ((pl.bonds || 0) > 0) html += ' · 🔗 <b>fusiona (' + pl.bonds + ')</b>';
+        el.innerHTML = html;
+        el.style.display = 'flex';
+      } catch (e) { if (bossEl) bossEl.style.display = 'none'; }
+    }
+    const bossTimer = setInterval(bossTick, 500);
+    mod.bossTick = bossTick;     // para tests/e2e.cjs
+    try { addEventListener('pagehide', () => clearInterval(bossTimer)); } catch (e) { /* nada */ }
 
     try { mod.analyzer = installAnalyzer(G, toast, core); }
     catch (e) { console.error('[PSG] no se pudo instalar el analizador', e); }
