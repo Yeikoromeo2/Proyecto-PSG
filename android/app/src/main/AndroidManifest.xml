@@ -3,10 +3,19 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- appCategory="game": Android lo trata como juego (Modo juego / panel de juegos en Android 12+). -->
+    <!-- Compatible con Android TV además del móvil: los TV no tienen pantalla táctil y se manejan con
+         teclado/ratón (o mando). Nada de esto es obligatorio, así que la misma app sigue instalándose en móviles. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+    <!-- appCategory="game": Android lo trata como juego (Modo juego / panel de juegos en Android 12+).
+         banner: la imagen que muestra el menú de Android TV. -->
     <application
         android:allowBackup="false"
         android:appCategory="game"
+        android:banner="@drawable/tv_banner"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -24,6 +33,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Para que aparezca en el menú de Android TV (fila de aplicaciones). -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
     </application>
