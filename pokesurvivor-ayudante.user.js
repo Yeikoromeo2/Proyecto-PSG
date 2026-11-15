@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.16
+// @version      0.9.17
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.16';
+  const VERSION = '0.9.17';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -141,7 +141,7 @@
   // ---------------- ajustes (sólo en este navegador) ----------------
 
   const KEY = 'psg.mod.v1';
-  const DEF = { auto: false, free: false, plan: true, style: 'equilibrado', delay: 900, swMs: 700 };
+  const DEF = { auto: false, free: false, plan: true, style: 'equilibrado', delay: 900, swMs: 700, confirm: true };
   const cfg = (() => {
     try { return Object.assign({}, DEF, JSON.parse(W.localStorage.getItem(KEY) || '{}')); }
     catch (e) { return Object.assign({}, DEF); }
@@ -1866,6 +1866,7 @@
     // (Siempre con argumentos sueltos, nunca `arguments`: en modo content el juego no podría leerlo.)
     G.RunUI.showLevelUp = exp(function (level, list, cb, coop) {
       shown = { level, cb, coop: !!coop };
+      try { disarm(); } catch (e) { /* nada */ }   // nueva subida: ninguna carta queda «a medio confirmar»
       return origShow.call(G.RunUI, level, list, cb, coop);
     });
 
@@ -1975,6 +1976,41 @@
         G.RunUI.pick(best);
       }, delay);
     }
+
+    // ---------------- confirmación al elegir carta (evita el toque equivocado) ----------------
+    // El juego aplica la carta al PRIMER toque; con esto el 1.er toque sólo la RESALTA y el 2.º en la
+    // MISMA carta confirma. Sólo en la pantalla de subir de nivel. Es tu propia elección (no toca nada
+    // del servidor ni del anti-trampas). El auto-pick usa G.RunUI.pick (no un click del DOM), así que
+    // nunca se intercepta. El juego delega el click en #scr-levelup, así que un listener en CAPTURA lo
+    // atrapa antes de que aplique la carta.
+    // Se arma/desarma por la CLASE del DOM, no por referencia al nodo: en el modo content de Firefox
+    // (Xray) la identidad del nodo no es estable entre eventos, y `card === guardado` fallaría.
+    function disarm() {
+      try {
+        document.querySelectorAll('#cards .card.psg-armed').forEach(c => {
+          c.classList.remove('psg-armed');
+          const h = c.querySelector('.psg-confirm-hint'); if (h) h.remove();
+        });
+      } catch (e) { /* nada */ }
+    }
+    document.addEventListener('click', function (e) {
+      try {
+        if (!cfg.confirm) return;
+        if (!isShown('scr-levelup')) { disarm(); return; }
+        const card = e.target && e.target.closest && e.target.closest('.card');
+        if (!card) return;
+        const box = document.getElementById('cards');
+        if (!box || !box.contains(card)) return;                 // sólo las cartas de subir de nivel
+        if (card.classList.contains('psg-armed')) { disarm(); return; }  // 2.º toque en la armada → aplica
+        e.preventDefault(); e.stopImmediatePropagation();        // 1.er toque → no aplicar todavía
+        disarm();                                                // quita el resaltado de cualquier otra
+        card.classList.add('psg-armed');
+        const h = document.createElement('div');
+        h.className = 'psg-confirm-hint'; h.setAttribute('translate', 'no');
+        h.textContent = '✔️ Toca otra vez para confirmar';
+        (card.querySelector('.txt') || card).appendChild(h);
+      } catch (err) { /* nunca bloquear el juego por un fallo nuestro */ }
+    }, true);
 
     // ---------------- vínculos y objetos ----------------
 
@@ -2191,6 +2227,7 @@
           + '<button type="button" class="psg-chip" data-k="plan"></button>'
           + '<button type="button" class="psg-chip" data-k="free"></button>'
           + '<button type="button" class="psg-chip" data-k="all"></button>'
+          + '<button type="button" class="psg-chip" data-k="confirm"></button>'
           + '<div class="psg-plan"></div><div class="psg-note"></div>';
         cards.parentNode.insertBefore(bar, cards);
         onTap(bar.querySelector('[data-k="auto"]'), () => {
@@ -2224,6 +2261,11 @@
           regenerate();     // vuelve a sacar la pantalla (todas clasificadas, o de vuelta a lo normal)
           paintBar();
         });
+        onTap(bar.querySelector('[data-k="confirm"]'), () => {
+          cfg.confirm = !cfg.confirm; saveCfg();
+          try { disarm(); } catch (e) { /* nada */ }
+          paintBar();
+        });
       }
       const a = bar.querySelector('[data-k="auto"]'), f = bar.querySelector('[data-k="free"]');
       a.textContent = cfg.auto ? '🤖 Automático' : '👆 Selección';
@@ -2240,6 +2282,11 @@
       if (ab) {
         ab.textContent = showAll ? '🗂️ Ver todas: ON' + (lastList ? ' (' + lastList.length + ')' : '') : '🗂️ Ver todas';
         ab.classList.toggle('on', showAll);
+      }
+      const cb = bar.querySelector('[data-k="confirm"]');
+      if (cb) {
+        cb.textContent = '✔️ Confirmar: ' + (cfg.confirm ? 'ON' : 'OFF');
+        cb.classList.toggle('on', cfg.confirm);
       }
       const pl = G.Game.player, plan = planFor(pl);
       let line = '';
@@ -2286,6 +2333,12 @@
       #psg-bar .psg-plan{width:100%;text-align:center;font-size:12px;line-height:1.3;color:#cfe0ff}
       .card.psg-best{outline:3px solid #ffd23f;outline-offset:2px;box-shadow:0 0 14px #ffd23f88}
       .psg-badge{margin-top:4px;font-size:12px;line-height:1.25;color:#ffe48a}
+      /* Confirmación: 1.er toque resalta la carta (no la aplica), 2.º la confirma. */
+      .card.psg-armed{outline:3px solid #4fd08a !important;outline-offset:2px;box-shadow:0 0 16px #4fd08a99 !important;
+        animation:psgArm .9s ease-in-out infinite}
+      @keyframes psgArm{50%{box-shadow:0 0 22px #4fd08a}}
+      .psg-confirm-hint{margin-top:4px;font-size:12px;font-weight:700;line-height:1.2;color:#2a2000;
+        background:#4fd08a;border-radius:8px;padding:3px 7px;text-align:center}
     `;
     (document.head || document.documentElement).appendChild(css);
 

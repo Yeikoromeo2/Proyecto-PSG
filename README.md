@@ -101,10 +101,14 @@ Los dos sirven para comparar tus Pokémon, no son números exactos de la partida
   - la mejora de stat que pide la evolución de un ataque del plan sube (hasta cogerla una vez);
   - un ataque de fuera del plan baja si ya no te sobran huecos, más cuanto peor sea que el
     ataque del plan al que le quitaría el sitio (y la mitad si aún tienes menos de 2 ataques).
+- **Interruptor ✔️ Confirmar (desde 0.9.17):** para que un **toque equivocado** no te fije el
+  poder. Con esto, el **1.er toque** en una carta solo la **resalta** (no la aplica) y el **2.º
+  toque en la MISMA** la confirma. Si tocas otra, se mueve el resaltado. Solo en la pantalla de
+  subir de nivel; viene activado y lo puedes apagar con el mismo interruptor.
 - **Interruptor 🔓 Modo libre (ON/OFF):** en lugar del sorteo te ofrece las 3 mejores
   cartas posibles en ese momento («Cambiar opciones» pasa a las siguientes).
   **La partida en la que lo uses no se sube al ranking**: así no compites con ventaja
-  contra quien juega limpio. En cooperativo no se puede activar.
+  contra quien juega limpio.
 - **Interruptor 🗂️ Ver todas (desde 0.9.10):** muestra de golpe **todas** las cartas
   posibles de esa subida, **clasificadas en secciones** (⚔️ Ataques y evoluciones,
   ✨ Potenciadores, 🛡️ Mejoras de partida), con scroll y la recomendada marcada. Es para
