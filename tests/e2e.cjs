@@ -384,7 +384,7 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(info.cards === 3 && info.best === 1, `3 cartas y 1 recomendada (${info.cards}/${info.best})`);
   check(info.bar, 'barra con los interruptores en la pantalla de cartas');
   const planLine = await page.evaluate(() => document.querySelector('#psg-bar .psg-plan').textContent);
-  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 6, 'seis interruptores (incl. «Ver todas» y «Confirmar») y la línea del plan');
+  check(/^Plan: /.test(planLine) && (await page.locator('#psg-bar .psg-chip').count()) === 5, 'cinco interruptores (incl. «Ver todas») y la línea del plan');
   await page.click('#psg-bar [data-k="style"]');
   const styleTxt = await page.locator('#psg-bar [data-k="style"]').textContent();
   check(/Aguante/.test(styleTxt) && (await page.locator('#cards .psg-badge').count()) === 3, 'el estilo cambia con un toque y repuntúa las cartas');
@@ -396,19 +396,6 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     badges: document.querySelectorAll('#cards .psg-badge').length }));
   check(off.line === '' && off.plan === null && off.badges === 3, 'Plan OFF: sin línea de plan y cartas repuntuadas');
   await page.click('#psg-bar [data-k="plan"]');
-  // Confirmar: una carta «a medio confirmar» (armada) se REINICIA al tocar Plan ON/OFF (mismas cartas, rescore).
-  await page.evaluate(() => { window.__psgMod.cfg.confirm = true; });
-  await page.click('#cards .card');
-  const armedBefore = await page.locator('#cards .card.psg-armed').count();
-  await page.click('#psg-bar [data-k="plan"]');   // repinta (rescore) → debe desarmar
-  const armReset = await page.evaluate(() => ({
-    armed: document.querySelectorAll('#cards .card.psg-armed').length,
-    hint: document.querySelectorAll('#cards .psg-confirm-hint').length,
-    open: !document.getElementById('scr-levelup').classList.contains('hidden')
-  }));
-  check(armedBefore === 1 && armReset.armed === 0 && armReset.hint === 0 && armReset.open,
-    'confirmar: al tocar Plan ON/OFF se reinicia la carta «a medio confirmar» (no queda seleccionada)');
-  await page.click('#psg-bar [data-k="plan"]');   // dejar el plan como estaba
   console.log('       motivos:', info.badges.join(' | '));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cartas-seleccion.png') });
 
@@ -664,20 +651,12 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   });
   check(scroll.allmode && scroll.cardsOverflow === 'visible' && scroll.barSticky === 'sticky',
     'Ver todas: scrollea el panel entero (sin mini-scroll) y los interruptores quedan fijos (móvil)');
-  // Confirmación (evita el toque equivocado): 1.er toque resalta, 2.º en la MISMA confirma. Bloqueo de 0,6 s.
+  // Elegir una carta en «Ver todas» pasa por el camino normal del juego (se cierra la pantalla). Bloqueo de 0,6 s.
   await page.waitForTimeout(800);
-  await page.evaluate(() => { window.__psgMod.cfg.auto = false; window.__psgMod.cfg.confirm = true; });
+  await page.evaluate(() => { window.__psgMod.cfg.auto = false; });
   await page.click('#cards .card');
-  const armed = await page.evaluate(() => ({
-    open: !document.getElementById('scr-levelup').classList.contains('hidden'),
-    armed: document.querySelectorAll('#cards .card.psg-armed').length,
-    hint: !!document.querySelector('#cards .psg-confirm-hint')
-  }));
-  check(armed.open && armed.armed === 1 && armed.hint,
-    'confirmar: el 1.er toque resalta la carta y NO la aplica (la pantalla sigue abierta)');
-  await page.click('#cards .card.psg-armed');   // 2.º toque en la MISMA carta → confirma
   const closed = await page.waitForFunction(() => document.getElementById('scr-levelup').classList.contains('hidden'), null, { timeout: 5000 }).then(() => true, () => false);
-  check(closed, 'confirmar: el 2.º toque en la misma carta la aplica y cierra la pantalla (acción normal del juego)');
+  check(closed, '«Ver todas»: elegir una carta la aplica y cierra la pantalla (acción normal del juego)');
   if (SHOTS) { await openCards(); await page.click('#psg-bar [data-k="all"]'); await page.waitForTimeout(500); await page.screenshot({ path: path.join(SHOTS, 'cartas-ver-todas.png') }); await page.evaluate(() => { window.__psgMod.cfg.auto = false; G.RunUI.pick(0); }); }
   await page.evaluate(() => { window.__psgMod.cfg.free = true; });
 
