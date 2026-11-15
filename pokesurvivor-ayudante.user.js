@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.13
+// @version      0.9.14
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.13';
+  const VERSION = '0.9.14';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -2358,7 +2358,9 @@
     // Cambia solo el hueco activo entre los que elijas, cada <1 s (como pulsar 1·2·3·4 pero sin manos).
     // Usa el propio control del juego (pl.setActive): no toca nada protegido. Lo paras cuando quieras.
     let swOn = false, swEl = null, swOpen = false, swIdx = 0, lastSwitch = 0, swCount = -1;
-    const SW_MS = [400, 600, 800, 1000];
+    // Intervalo editable (ms): el usuario lo ajusta fino para dar con el punto donde el poder sí dispara.
+    const SW_MIN = 50, SW_MAX = 2500, SW_BTN = 50;   // tope, suelo y paso de los botones −/+
+    const swClampMs = v => Math.min(SW_MAX, Math.max(SW_MIN, Math.round((+v || 700) / 10) * 10));
     const swSel = new Set();     // índices de hueco elegidos (por defecto, todos)
     function swBuild() {
       swEl = document.createElement('div');
@@ -2380,11 +2382,16 @@
           background:#ffffff10;cursor:pointer;font-size:11px}
         #psg-switch .psg-sw-ch.sel{border-color:#8fd3ff;background:#8fd3ff22}
         #psg-switch .psg-sw-ch img{width:18px;height:18px;image-rendering:pixelated}
-        #psg-switch .psg-sw-ms{padding:3px 8px;border-radius:999px;border:1px solid #ffffff33;background:none;color:#cfe0ff;cursor:pointer;font-size:11px}
-        #psg-switch .psg-sw-ms.on{background:#8fd3ff;color:#06263a;border-color:#8fd3ff}
+        #psg-switch .psg-sw-rate{gap:6px}
+        #psg-switch .psg-sw-lbl{color:#9fb6d9;font-size:11px}
+        #psg-switch .psg-sw-step{width:26px;height:26px;border-radius:8px;border:1px solid #8fd3ff66;background:#0b1328;
+          color:#cfe0ff;font-size:16px;line-height:1;cursor:pointer;padding:0;flex:0 0 auto}
+        #psg-switch .psg-sw-slider{flex:1 1 92px;min-width:84px;accent-color:#8fd3ff;height:22px}
+        #psg-switch .psg-sw-val{min-width:54px;text-align:center;color:#8fd3ff;font-weight:700;font-size:12px}
         #psg-switch .psg-sw-go{padding:5px 10px;border-radius:999px;border:0;font-weight:700;cursor:pointer;background:#8fd3ff;color:#06263a}
         #psg-switch .psg-sw-go.on{background:#ff6b6b;color:#fff}
-        #psg-switch .psg-sw-note{color:#ffd23f;font-size:10px;max-width:160px}`;
+        #psg-switch.paused .psg-sw-handle{border-color:#ffd23f;color:#ffd23f}
+        #psg-switch .psg-sw-note{color:#ffd23f;font-size:10px;max-width:170px}`;
       (document.head || document.documentElement).appendChild(css);
       swEl.innerHTML = '<div class="psg-sw-handle" title="Auto-cambio de poderes">🔁</div>'
         + '<div class="psg-sw-panel"><div class="psg-sw-row psg-sw-slots"></div>'
@@ -2397,16 +2404,31 @@
         if (swOn) { lastSwitch = 0; swIdx = -1; }
         swSync(true);
       });
-      swEl.querySelector('.psg-sw-rate').innerHTML = SW_MS.map(ms =>
-        '<button type="button" class="psg-sw-ms" data-ms="' + ms + '">' + (ms / 1000) + ' s</button>').join('');
+      swEl.querySelector('.psg-sw-rate').innerHTML =
+        '<span class="psg-sw-lbl">⏱</span>'
+        + '<button type="button" class="psg-sw-step" data-d="-1" title="Más rápido">−</button>'
+        + '<input type="range" class="psg-sw-slider" min="' + SW_MIN + '" max="' + SW_MAX + '" step="10" value="700">'
+        + '<button type="button" class="psg-sw-step" data-d="1" title="Más lento">+</button>'
+        + '<span class="psg-sw-val">0,70 s</span>';
+      const setMs = ms => { cfg.swMs = swClampMs(ms); saveCfg(); swRateView(); };
+      const slider = swEl.querySelector('.psg-sw-slider');
+      slider.addEventListener('input', () => setMs(slider.value));
       swEl.querySelector('.psg-sw-rate').addEventListener('click', e => {
-        const b = e.target.closest('[data-ms]'); if (!b) return; cfg.swMs = +b.dataset.ms; saveCfg(); swSync(true);
+        const b = e.target.closest('[data-d]'); if (!b) return;
+        setMs((+cfg.swMs || 700) + (+b.dataset.d) * SW_BTN);   // − = más rápido, + = más lento
       });
       swEl.querySelector('.psg-sw-slots').addEventListener('click', e => {
         const c = e.target.closest('[data-slot]'); if (!c) return;
         const i = +c.dataset.slot; if (swSel.has(i)) swSel.delete(i); else swSel.add(i); swSync(true);
       });
       return swEl;
+    }
+    /** Pinta el intervalo elegido en el deslizador y el número (sin pelearse con el dedo del usuario). */
+    function swRateView() {
+      if (!swEl) return;
+      const ms = swClampMs(cfg.swMs), sl = swEl.querySelector('.psg-sw-slider');
+      if (sl && document.activeElement !== sl) sl.value = ms;
+      const v = swEl.querySelector('.psg-sw-val'); if (v) v.textContent = (ms / 1000).toFixed(2).replace('.', ',') + ' s';
     }
     /** Repinta el panel (huecos, intervalo, estado). full=true cuando cambió algo. */
     function swSync(full) {
@@ -2422,36 +2444,46 @@
           let ico = ''; try { ico = String(G.Icons.html('move:' + g[0].id, 18)); } catch (e) { /* nada */ }
           return '<span class="psg-sw-ch' + (swSel.has(i) ? ' sel' : '') + '" data-slot="' + i + '">' + (i + 1) + ico + '</span>';
         }).join('');
-        swEl.querySelectorAll('.psg-sw-ms').forEach(b => b.classList.toggle('on', +b.dataset.ms === cfg.swMs));
-        const go = swEl.querySelector('.psg-sw-go');
-        go.textContent = swOn ? '⏹ Parar' : '▶ Empezar';
-        go.classList.toggle('on', swOn);
-        const note = swEl.querySelector('.psg-sw-note');
-        note.textContent = pl && pl.hasItem && pl.hasItem('choiceband') ? 'Con Cinta Elección no se puede cambiar de poder.'
-          : swSel.size < 2 ? 'Elige al menos 2 poderes para alternar.' : '';
       }
+      swRateView();   // el intervalo se refresca siempre (puede cambiarlo el deslizador o los botones)
+      const go = swEl.querySelector('.psg-sw-go');
+      go.textContent = swOn ? '⏹ Parar' : '▶ Empezar';
+      go.classList.toggle('on', swOn);
+      const st = G.Game && G.Game.state;
+      const paused = st === 'pause' || st === 'paused' || isShown('scr-pause');
+      const seg = (swClampMs(cfg.swMs) / 1000).toFixed(2).replace('.', ',');
+      const note = swEl.querySelector('.psg-sw-note');
+      note.textContent = pl && pl.hasItem && pl.hasItem('choiceband') ? 'Con Cinta Elección no se puede cambiar de poder.'
+        : swSel.size < 2 ? 'Elige al menos 2 poderes para alternar.'
+          : paused ? '⏸ En pausa: ajusta el intervalo con calma; al reanudar sigue cambiando.'
+            : swOn ? 'Cambiando cada ' + seg + ' s. Si un poder no llega a disparar, súbelo un poco (+).' : '';
       swEl.classList.toggle('on', swOn);
     }
     function swTick() {
       try {
         const pl = G.Game && G.Game.player, st = G.Game && G.Game.state;
-        const playing = st === 'playing' || st === 'held';
-        if (!pl || !playing || !pl.slots || pl.slots.length < 1) { if (swEl) swEl.style.display = 'none'; return; }
+        const canSwitch = st === 'playing' || st === 'held';
+        const paused = st === 'pause' || st === 'paused' || isShown('scr-pause');
+        // El panel sigue visible en pausa: así ajustas el intervalo sin que te ataquen.
+        const inRun = pl && pl.slots && pl.slots.length >= 1 && (canSwitch || paused);
+        if (!inRun) { if (swEl) swEl.style.display = 'none'; return; }
         if (!swEl) swBuild();
         swEl.style.display = 'flex';
+        swEl.classList.toggle('paused', paused && !canSwitch);
         swSync(false);
         if (!swOn) return;
-        if (pl.hasItem && pl.hasItem('choiceband')) return;      // el juego bloquea el cambio
+        if (!canSwitch) return;                                 // en pausa NO cambia (solo ajustas)
+        if (pl.hasItem && pl.hasItem('choiceband')) return;     // el juego bloquea el cambio
         const sel = [...swSel].filter(i => i < pl.slots.length).sort((a, b) => a - b);
         if (sel.length < 2) return;
-        if (Date.now() - lastSwitch < Math.max(300, +cfg.swMs || 700)) return;
+        if (Date.now() - lastSwitch < swClampMs(cfg.swMs)) return;
         const cur = sel.indexOf(pl.active);
         swIdx = ((cur >= 0 ? cur : swIdx) + 1) % sel.length;
         try { pl.setActive(sel[swIdx]); } catch (e) { /* nada */ }
         lastSwitch = Date.now();
       } catch (e) { if (swEl) swEl.style.display = 'none'; }
     }
-    const swTimer = setInterval(swTick, 120);
+    const swTimer = setInterval(swTick, 40);
     mod.swTick = swTick;     // para tests/e2e.cjs
     Object.defineProperty(mod, 'swOn', { get: () => swOn, set: v => { swOn = !!v; } });
     try { addEventListener('pagehide', () => clearInterval(swTimer)); } catch (e) { /* nada */ }

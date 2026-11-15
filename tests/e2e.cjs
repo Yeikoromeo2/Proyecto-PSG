@@ -481,15 +481,46 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   await page.waitForTimeout(250);
   const swUi = await page.evaluate(() => {
     document.querySelector('#psg-switch .psg-sw-handle').click();     // abrir el panel
-    return { slots: document.querySelectorAll('#psg-switch .psg-sw-ch').length, rates: document.querySelectorAll('#psg-switch .psg-sw-ms').length,
-      open: document.getElementById('psg-switch').classList.contains('open'), hasSub1s: !!document.querySelector('#psg-switch [data-ms="400"]') };
+    const sl = document.querySelector('#psg-switch .psg-sw-slider');
+    return { slots: document.querySelectorAll('#psg-switch .psg-sw-ch').length,
+      hasSlider: !!sl, min: sl && +sl.min, max: sl && +sl.max,
+      steps: document.querySelectorAll('#psg-switch .psg-sw-step').length,
+      val: (document.querySelector('#psg-switch .psg-sw-val') || {}).textContent || '',
+      open: document.getElementById('psg-switch').classList.contains('open') };
   });
-  check(swUi.slots >= 2 && swUi.rates >= 1 && swUi.open && swUi.hasSub1s, `auto-cambio: panel con ${swUi.slots} poderes e intervalos (incl. <1 s)`);
-  await page.evaluate(() => { document.querySelector('#psg-switch [data-ms="400"]').click(); document.querySelector('#psg-switch .psg-sw-go').click(); });
+  check(swUi.slots >= 2 && swUi.hasSlider && swUi.steps === 2 && swUi.open && swUi.min <= 100 && swUi.max >= 1000,
+    `auto-cambio: panel con ${swUi.slots} poderes y control editable del intervalo (${swUi.min}–${swUi.max} ms, lee "${swUi.val}")`);
+  // El intervalo es editable: deslizador + botones −/+ (fino, para dar con el punto donde el poder dispara).
+  const edit = await page.evaluate(() => {
+    const sl = document.querySelector('#psg-switch .psg-sw-slider');
+    sl.value = 150; sl.dispatchEvent(new Event('input'));
+    const after150 = window.__psgMod.cfg.swMs, read150 = document.querySelector('#psg-switch .psg-sw-val').textContent;
+    document.querySelector('#psg-switch [data-d="1"]').click();   // + = más lento
+    const afterPlus = window.__psgMod.cfg.swMs;
+    sl.value = 150; sl.dispatchEvent(new Event('input'));
+    return { after150, read150, afterPlus };
+  });
+  check(edit.after150 === 150 && /0,1[0-9]/.test(edit.read150) && edit.afterPlus > edit.after150,
+    `auto-cambio: intervalo editable (deslizador→${edit.after150} ms "${edit.read150}", botón +→${edit.afterPlus} ms)`);
+  await page.evaluate(() => { document.querySelector('#psg-switch .psg-sw-go').click(); });
   const seq = [];
   for (let i = 0; i < 8; i++) { await page.waitForTimeout(220); seq.push(await page.evaluate(() => G.Game.player.active)); }
   const distinct = new Set(seq).size;
   check(distinct >= 3, `auto-cambio: va alternando el hueco activo (${seq.join('')}, ${distinct} distintos)`);
+  // En PAUSA el panel no desaparece (para ajustar sin que te ataquen) y NO cambia de poder.
+  const pausa = await page.evaluate(() => {
+    try { G.Game.togglePause(); } catch (e) { /* nada */ }
+    const st = G.Game.state;
+    for (let k = 0; k < 6; k++) window.__psgMod.swTick();   // deja que reaccione a la pausa
+    const disp = getComputedStyle(document.getElementById('psg-switch')).display;
+    const before = G.Game.player.active;
+    for (let k = 0; k < 15; k++) window.__psgMod.swTick();
+    const same = G.Game.player.active === before;
+    try { G.Game.togglePause(); } catch (e) { /* nada */ }   // reanudar
+    return { st, visible: disp !== 'none', same };
+  });
+  check(pausa.visible && (pausa.st === 'pause' || pausa.st === 'paused') && pausa.same,
+    `auto-cambio: en pausa (${pausa.st}) el panel sigue visible y NO cambia de poder`);
   // Al parar se queda quieto.
   await page.evaluate(() => { document.querySelector('#psg-switch .psg-sw-go').click(); });
   const sA = await page.evaluate(() => G.Game.player.active); await page.waitForTimeout(700); const sB = await page.evaluate(() => G.Game.player.active);

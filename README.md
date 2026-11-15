@@ -113,13 +113,20 @@ Los dos sirven para comparar tus Pokémon, no son números exactos de la partida
 
 Los interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
-### Auto-cambio de poderes (desde 0.9.13)
+### Auto-cambio de poderes (desde 0.9.13; intervalo editable y pausa desde 0.9.14)
 
 En partida, a la izquierda sale un botón **🔁** (plegable). Lo abres, eliges **qué poderes alternar**
-(los huecos 1·2·3·4) y **cada cuánto cambiar** (0,4 / 0,6 / 0,8 / 1 s), y pulsas **Empezar**: el ayudante
-va cambiando el poder activo solo, como si pulsaras 1·2·3·4 con el teclado pero sin manos. Lo paras cuando
-quieras. Usa el control del propio juego (no cambia nada más); con **Cinta Elección** no cambia, porque el
-juego no deja cambiar de poder con ese objeto.
+(los huecos 1·2·3·4) y **cada cuánto cambiar**, y pulsas **Empezar**: el ayudante va cambiando el poder
+activo solo, como si pulsaras 1·2·3·4 con el teclado pero sin manos. Lo paras cuando quieras. Usa el control
+del propio juego (no cambia nada más); con **Cinta Elección** no cambia, porque el juego no deja cambiar de
+poder con ese objeto.
+
+- **El tiempo es editable** (no sólo valores fijos): con el **deslizador** y los botones **−/+** lo ajustas
+  fino, de 0,05 s a 2,50 s, y ves el valor en vivo. Así buscas el punto justo: si vas **demasiado rápido**
+  el juego no llega a lanzar el ataque (igual que machacar el cambio a mano), así que si un poder no dispara,
+  súbelo un poco con **+**.
+- **Si pones PAUSA el panel no desaparece:** puedes ajustar el intervalo con calma, sin que te ataquen. En
+  pausa sólo se ajusta; vuelve a cambiar de poder al reanudar.
 
 ### Ayuda contra jefes (desde 0.9.12)
 

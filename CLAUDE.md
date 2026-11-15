@@ -87,14 +87,22 @@
   vínculo y +1 con cada uno más; para un grupo de 4 hacen falta 3). Tolera el parpadeo de la pantalla entre
   fusiones (cuenta `idle`) y para al agotar vínculos → NO crea fusiones gratis. Respeta el bloqueo de ~0,6 s.
 
-## Auto-cambio de poderes (v0.9.13)
+## Auto-cambio de poderes (v0.9.13; intervalo editable + pausa v0.9.14)
 - Panel flotante en partida (`#psg-switch`, plegable con el 🔁): alterna el hueco activo entre los que elijas
-  cada `cfg.swMs` (0,4/0,6/0,8/1 s). Usa el propio control del juego `pl.setActive(i)` (no toca nada protegido),
+  cada `cfg.swMs`. Usa el propio control del juego `pl.setActive(i)` (no toca nada protegido),
   como pulsar 1·2·3·4 sin manos. Es automatizar una acción normal (como el auto-pick y la fusión).
-- `swTick` cada 120 ms: si `swOn`, playing y ≥2 huecos elegidos, cambia al siguiente cuando pasó el intervalo.
-  Respeta Cinta Elección (`pl.hasItem('choiceband')` → no cambia; el juego también lo bloquea en `setActive`).
+- **Intervalo EDITABLE (v0.9.14)**: ya no son 4 presets fijos, sino un deslizador `<input type=range>` + botones
+  `−`/`+` + lectura en vivo («0,70 s»). Límites `SW_MIN=50`…`SW_MAX=2500` ms (`swClampMs` redondea a 10 ms;
+  botones `SW_BTN=50` ms, `−` = más rápido). Así el usuario afina el punto donde el poder SÍ dispara: si va
+  demasiado rápido el juego no llega a lanzar el ataque (igual que machacar el cambio a mano), así que el aviso
+  sugiere subirlo un poco. `swRateView()` no pisa el deslizador mientras el dedo lo arrastra (`document.activeElement`).
+- **No desaparece en PAUSA (v0.9.14)**: el panel se ve mientras `canSwitch` (`playing`/`held`) **o** en pausa
+  (`state 'pause'/'paused'` o `isShown('scr-pause')`), para poder ajustar el intervalo sin que te ataquen; pero
+  sólo CAMBIA de poder jugando (en pausa no llama a `setActive`). Clase `.paused` (🔁 en ámbar) + aviso.
+- `swTick` cada 40 ms (antes 120): si `swOn`, jugando y ≥2 huecos elegidos, cambia al siguiente cuando pasó
+  `swClampMs(cfg.swMs)`. Respeta Cinta Elección (`pl.hasItem('choiceband')` → no cambia; el juego también lo bloquea).
 - Objetos del jugador: ahora en `pl.items` (array) con `pl.equip(id)`/`pl.hasItem(id)`; `pl.item` ya no existe.
-- Mismo archivo para app + extensión + Firefox: una sola implementación.
+- Mismo archivo para app + extensión + Firefox: una sola implementación. Pausa de prueba: `G.Game.togglePause()`.
 
 ## «Ver todas» en la subida de nivel (v0.9.10)
 - Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida
