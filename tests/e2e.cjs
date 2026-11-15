@@ -474,6 +474,38 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
   check(oneBond.bonds === 0 && oneBond.biggest <= 2, `con 1 vínculo sólo forma una pareja, no fusiones gratis (mayor grupo ${oneBond.biggest})`);
   await page.evaluate(() => { try { G.UI.hide('scr-bond'); } catch (e) {} });
 
+  // Auto-cambio de poderes: alterna el hueco activo entre los elegidos cada <1 s, con el control del juego.
+  await page.evaluate(() => { G.Game.startRun(); });
+  await page.waitForFunction(() => G.Game.state === 'playing' && G.Game.player, null, { timeout: 15000 });
+  await page.evaluate(() => { const pl = G.Game.player, plan = window.__psgMod.plan(); for (const id of plan.ids) if (!pl.hasMove(id)) pl.addMove(id); });
+  await page.waitForTimeout(250);
+  const swUi = await page.evaluate(() => {
+    document.querySelector('#psg-switch .psg-sw-handle').click();     // abrir el panel
+    return { slots: document.querySelectorAll('#psg-switch .psg-sw-ch').length, rates: document.querySelectorAll('#psg-switch .psg-sw-ms').length,
+      open: document.getElementById('psg-switch').classList.contains('open'), hasSub1s: !!document.querySelector('#psg-switch [data-ms="400"]') };
+  });
+  check(swUi.slots >= 2 && swUi.rates >= 1 && swUi.open && swUi.hasSub1s, `auto-cambio: panel con ${swUi.slots} poderes e intervalos (incl. <1 s)`);
+  await page.evaluate(() => { document.querySelector('#psg-switch [data-ms="400"]').click(); document.querySelector('#psg-switch .psg-sw-go').click(); });
+  const seq = [];
+  for (let i = 0; i < 8; i++) { await page.waitForTimeout(220); seq.push(await page.evaluate(() => G.Game.player.active)); }
+  const distinct = new Set(seq).size;
+  check(distinct >= 3, `auto-cambio: va alternando el hueco activo (${seq.join('')}, ${distinct} distintos)`);
+  // Al parar se queda quieto.
+  await page.evaluate(() => { document.querySelector('#psg-switch .psg-sw-go').click(); });
+  const sA = await page.evaluate(() => G.Game.player.active); await page.waitForTimeout(700); const sB = await page.evaluate(() => G.Game.player.active);
+  check(sA === sB, 'auto-cambio: al parar, el hueco activo se queda quieto');
+  // Con Cinta Elección no cambia (el juego lo bloquea).
+  const lock = await page.evaluate(() => {
+    const pl = G.Game.player;
+    try { pl.equip('choiceband'); } catch (e) { pl.items = ['choiceband']; }
+    const locked = pl.hasItem('choiceband');
+    window.__psgMod.swOn = true; const before = pl.active;
+    for (let k = 0; k < 12; k++) window.__psgMod.swTick();
+    const same = pl.active === before; window.__psgMod.swOn = false; pl.items = [];
+    return locked && same;
+  });
+  check(lock, 'auto-cambio: con Cinta Elección no cambia de poder (respeta el bloqueo del juego)');
+
   // Objeto (firma nueva: varios huecos → showItemChoice(objetos[], nuevo, cb, hueco)).
   // Lleno: cambiar Moneda Amuleto por Cinta Elección (mejor para pelear) → marca la carta de ese hueco.
   await page.evaluate(() => { window.__psgMod.cfg.auto = false; window.__psgItem = null; G.RunUI.showItemChoice(['amuletcoin'], 'choiceband', id => { window.__psgItem = id; }, -1); });

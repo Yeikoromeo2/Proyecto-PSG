@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.12
+// @version      0.9.13
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.12';
+  const VERSION = '0.9.13';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -141,7 +141,7 @@
   // ---------------- ajustes (sólo en este navegador) ----------------
 
   const KEY = 'psg.mod.v1';
-  const DEF = { auto: false, free: false, plan: true, style: 'equilibrado', delay: 900 };
+  const DEF = { auto: false, free: false, plan: true, style: 'equilibrado', delay: 900, swMs: 700 };
   const cfg = (() => {
     try { return Object.assign({}, DEF, JSON.parse(W.localStorage.getItem(KEY) || '{}')); }
     catch (e) { return Object.assign({}, DEF); }
@@ -2353,6 +2353,108 @@
     const bossTimer = setInterval(bossTick, 500);
     mod.bossTick = bossTick;     // para tests/e2e.cjs
     try { addEventListener('pagehide', () => clearInterval(bossTimer)); } catch (e) { /* nada */ }
+
+    // ---------------- auto-cambio de poderes (huecos) ----------------
+    // Cambia solo el hueco activo entre los que elijas, cada <1 s (como pulsar 1·2·3·4 pero sin manos).
+    // Usa el propio control del juego (pl.setActive): no toca nada protegido. Lo paras cuando quieras.
+    let swOn = false, swEl = null, swOpen = false, swIdx = 0, lastSwitch = 0, swCount = -1;
+    const SW_MS = [400, 600, 800, 1000];
+    const swSel = new Set();     // índices de hueco elegidos (por defecto, todos)
+    function swBuild() {
+      swEl = document.createElement('div');
+      swEl.id = 'psg-switch';
+      swEl.setAttribute('translate', 'no');
+      const css = document.createElement('style');
+      css.textContent = `
+        #psg-switch{position:fixed;left:6px;top:50%;transform:translateY(-50%);z-index:2147483645;
+          font:600 12px/1.2 sans-serif;color:#e8eefc;pointer-events:auto;display:flex;align-items:center;gap:6px}
+        #psg-switch .psg-sw-handle{width:38px;height:38px;border-radius:50%;border:2px solid #8fd3ff;background:#0b1328cc;
+          color:#8fd3ff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+        #psg-switch.on .psg-sw-handle{background:#8fd3ff;color:#06263a;animation:psgpulse 1s infinite}
+        @keyframes psgpulse{50%{box-shadow:0 0 0 5px #8fd3ff55}}
+        #psg-switch .psg-sw-panel{display:none;flex-direction:column;gap:5px;background:rgba(10,16,34,.95);border:1px solid #8fd3ff66;
+          border-radius:12px;padding:7px 9px;max-width:72vw}
+        #psg-switch.open .psg-sw-panel{display:flex}
+        #psg-switch .psg-sw-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+        #psg-switch .psg-sw-ch{display:flex;align-items:center;gap:3px;padding:3px 6px;border-radius:8px;border:1px solid #ffffff33;
+          background:#ffffff10;cursor:pointer;font-size:11px}
+        #psg-switch .psg-sw-ch.sel{border-color:#8fd3ff;background:#8fd3ff22}
+        #psg-switch .psg-sw-ch img{width:18px;height:18px;image-rendering:pixelated}
+        #psg-switch .psg-sw-ms{padding:3px 8px;border-radius:999px;border:1px solid #ffffff33;background:none;color:#cfe0ff;cursor:pointer;font-size:11px}
+        #psg-switch .psg-sw-ms.on{background:#8fd3ff;color:#06263a;border-color:#8fd3ff}
+        #psg-switch .psg-sw-go{padding:5px 10px;border-radius:999px;border:0;font-weight:700;cursor:pointer;background:#8fd3ff;color:#06263a}
+        #psg-switch .psg-sw-go.on{background:#ff6b6b;color:#fff}
+        #psg-switch .psg-sw-note{color:#ffd23f;font-size:10px;max-width:160px}`;
+      (document.head || document.documentElement).appendChild(css);
+      swEl.innerHTML = '<div class="psg-sw-handle" title="Auto-cambio de poderes">🔁</div>'
+        + '<div class="psg-sw-panel"><div class="psg-sw-row psg-sw-slots"></div>'
+        + '<div class="psg-sw-row psg-sw-rate"></div>'
+        + '<div class="psg-sw-row"><button type="button" class="psg-sw-go">▶ Empezar</button><span class="psg-sw-note"></span></div></div>';
+      (document.body || document.documentElement).appendChild(swEl);
+      onTap(swEl.querySelector('.psg-sw-handle'), () => { swOpen = !swOpen; swEl.classList.toggle('open', swOpen); swSync(true); });
+      onTap(swEl.querySelector('.psg-sw-go'), () => {
+        swOn = !swOn;
+        if (swOn) { lastSwitch = 0; swIdx = -1; }
+        swSync(true);
+      });
+      swEl.querySelector('.psg-sw-rate').innerHTML = SW_MS.map(ms =>
+        '<button type="button" class="psg-sw-ms" data-ms="' + ms + '">' + (ms / 1000) + ' s</button>').join('');
+      swEl.querySelector('.psg-sw-rate').addEventListener('click', e => {
+        const b = e.target.closest('[data-ms]'); if (!b) return; cfg.swMs = +b.dataset.ms; saveCfg(); swSync(true);
+      });
+      swEl.querySelector('.psg-sw-slots').addEventListener('click', e => {
+        const c = e.target.closest('[data-slot]'); if (!c) return;
+        const i = +c.dataset.slot; if (swSel.has(i)) swSel.delete(i); else swSel.add(i); swSync(true);
+      });
+      return swEl;
+    }
+    /** Repinta el panel (huecos, intervalo, estado). full=true cuando cambió algo. */
+    function swSync(full) {
+      const pl = G.Game && G.Game.player;
+      if (!swEl) return;
+      const n = pl && pl.slots ? pl.slots.length : 0;
+      if (n !== swCount) {   // cambiaron los huecos (aprendiste/fusionaste): por defecto, todos elegidos
+        swCount = n; swSel.clear(); for (let i = 0; i < n; i++) swSel.add(i); full = true;
+      }
+      if (full) {
+        const slots = swEl.querySelector('.psg-sw-slots');
+        slots.innerHTML = (pl && pl.slots ? arr(pl.slots) : []).map((g, i) => {
+          let ico = ''; try { ico = String(G.Icons.html('move:' + g[0].id, 18)); } catch (e) { /* nada */ }
+          return '<span class="psg-sw-ch' + (swSel.has(i) ? ' sel' : '') + '" data-slot="' + i + '">' + (i + 1) + ico + '</span>';
+        }).join('');
+        swEl.querySelectorAll('.psg-sw-ms').forEach(b => b.classList.toggle('on', +b.dataset.ms === cfg.swMs));
+        const go = swEl.querySelector('.psg-sw-go');
+        go.textContent = swOn ? '⏹ Parar' : '▶ Empezar';
+        go.classList.toggle('on', swOn);
+        const note = swEl.querySelector('.psg-sw-note');
+        note.textContent = pl && pl.hasItem && pl.hasItem('choiceband') ? 'Con Cinta Elección no se puede cambiar de poder.'
+          : swSel.size < 2 ? 'Elige al menos 2 poderes para alternar.' : '';
+      }
+      swEl.classList.toggle('on', swOn);
+    }
+    function swTick() {
+      try {
+        const pl = G.Game && G.Game.player, st = G.Game && G.Game.state;
+        const playing = st === 'playing' || st === 'held';
+        if (!pl || !playing || !pl.slots || pl.slots.length < 1) { if (swEl) swEl.style.display = 'none'; return; }
+        if (!swEl) swBuild();
+        swEl.style.display = 'flex';
+        swSync(false);
+        if (!swOn) return;
+        if (pl.hasItem && pl.hasItem('choiceband')) return;      // el juego bloquea el cambio
+        const sel = [...swSel].filter(i => i < pl.slots.length).sort((a, b) => a - b);
+        if (sel.length < 2) return;
+        if (Date.now() - lastSwitch < Math.max(300, +cfg.swMs || 700)) return;
+        const cur = sel.indexOf(pl.active);
+        swIdx = ((cur >= 0 ? cur : swIdx) + 1) % sel.length;
+        try { pl.setActive(sel[swIdx]); } catch (e) { /* nada */ }
+        lastSwitch = Date.now();
+      } catch (e) { if (swEl) swEl.style.display = 'none'; }
+    }
+    const swTimer = setInterval(swTick, 120);
+    mod.swTick = swTick;     // para tests/e2e.cjs
+    Object.defineProperty(mod, 'swOn', { get: () => swOn, set: v => { swOn = !!v; } });
+    try { addEventListener('pagehide', () => clearInterval(swTimer)); } catch (e) { /* nada */ }
 
     try { mod.analyzer = installAnalyzer(G, toast, core); }
     catch (e) { console.error('[PSG] no se pudo instalar el analizador', e); }

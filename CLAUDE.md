@@ -87,6 +87,15 @@
   vínculo y +1 con cada uno más; para un grupo de 4 hacen falta 3). Tolera el parpadeo de la pantalla entre
   fusiones (cuenta `idle`) y para al agotar vínculos → NO crea fusiones gratis. Respeta el bloqueo de ~0,6 s.
 
+## Auto-cambio de poderes (v0.9.13)
+- Panel flotante en partida (`#psg-switch`, plegable con el 🔁): alterna el hueco activo entre los que elijas
+  cada `cfg.swMs` (0,4/0,6/0,8/1 s). Usa el propio control del juego `pl.setActive(i)` (no toca nada protegido),
+  como pulsar 1·2·3·4 sin manos. Es automatizar una acción normal (como el auto-pick y la fusión).
+- `swTick` cada 120 ms: si `swOn`, playing y ≥2 huecos elegidos, cambia al siguiente cuando pasó el intervalo.
+  Respeta Cinta Elección (`pl.hasItem('choiceband')` → no cambia; el juego también lo bloquea en `setActive`).
+- Objetos del jugador: ahora en `pl.items` (array) con `pl.equip(id)`/`pl.hasItem(id)`; `pl.item` ya no existe.
+- Mismo archivo para app + extensión + Firefox: una sola implementación.
+
 ## «Ver todas» en la subida de nivel (v0.9.10)
 - Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida
   (`fullPool`), clasificadas en 3 secciones con encabezado `.psg-sec-h`: ataques/evoluciones,

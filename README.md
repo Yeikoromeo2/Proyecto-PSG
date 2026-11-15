@@ -113,6 +113,14 @@ Los dos sirven para comparar tus Pokémon, no son números exactos de la partida
 
 Los interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
+### Auto-cambio de poderes (desde 0.9.13)
+
+En partida, a la izquierda sale un botón **🔁** (plegable). Lo abres, eliges **qué poderes alternar**
+(los huecos 1·2·3·4) y **cada cuánto cambiar** (0,4 / 0,6 / 0,8 / 1 s), y pulsas **Empezar**: el ayudante
+va cambiando el poder activo solo, como si pulsaras 1·2·3·4 con el teclado pero sin manos. Lo paras cuando
+quieras. Usa el control del propio juego (no cambia nada más); con **Cinta Elección** no cambia, porque el
+juego no deja cambiar de poder con ese objeto.
+
 ### Ayuda contra jefes (desde 0.9.12)
 
 - **Aviso de jefe en partida:** cuando apuntas a un jefe o legendario, sale arriba una barra con
