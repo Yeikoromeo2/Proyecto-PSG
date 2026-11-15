@@ -134,6 +134,13 @@
   del DOM), así que nunca se intercepta.
 - **Clave Firefox (Xray)**: armar/desarmar por la CLASE `.psg-armed` del DOM, NO por referencia al nodo: en el
   modo content la identidad del nodo no es estable entre eventos y `card===guardado` falla (lo pilló XRAY2).
+- **Reinicio al repintar (v0.9.18)**: `disarm()` también al principio de `rescore()` y `regenerate()`, así al tocar
+  **Plan/estilo/modo libre/Ver todas** la carta «a medio confirmar» se reinicia (antes `rescore` dejaba el resaltado
+  pegado porque no reconstruye los nodos). Pedido del usuario: «que reinicie cuando coloque plan on/off».
+- **En cooperativo YA funciona igual**: el listener sólo filtra por `isShown('scr-levelup')` (misma pantalla en coop),
+  no por `coopActive()`. El 1.er toque es 100% local (bloquea el commit del juego) → NO manda nada a los compañeros;
+  sólo el 2.º toque aplica y el juego envía su señal `['lp']` («seleccionado»). O sea, el «pausado» de confirmar NO
+  interfiere en la comunicación del coop y la info se manda sólo al confirmar. (Coop no testeable aquí: confirmar en sala real.)
 
 ## «Ver todas» en la subida de nivel (v0.9.10)
 - Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida

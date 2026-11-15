@@ -396,6 +396,19 @@ const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FALLO ') + msg); i
     badges: document.querySelectorAll('#cards .psg-badge').length }));
   check(off.line === '' && off.plan === null && off.badges === 3, 'Plan OFF: sin línea de plan y cartas repuntuadas');
   await page.click('#psg-bar [data-k="plan"]');
+  // Confirmar: una carta «a medio confirmar» (armada) se REINICIA al tocar Plan ON/OFF (mismas cartas, rescore).
+  await page.evaluate(() => { window.__psgMod.cfg.confirm = true; });
+  await page.click('#cards .card');
+  const armedBefore = await page.locator('#cards .card.psg-armed').count();
+  await page.click('#psg-bar [data-k="plan"]');   // repinta (rescore) → debe desarmar
+  const armReset = await page.evaluate(() => ({
+    armed: document.querySelectorAll('#cards .card.psg-armed').length,
+    hint: document.querySelectorAll('#cards .psg-confirm-hint').length,
+    open: !document.getElementById('scr-levelup').classList.contains('hidden')
+  }));
+  check(armedBefore === 1 && armReset.armed === 0 && armReset.hint === 0 && armReset.open,
+    'confirmar: al tocar Plan ON/OFF se reinicia la carta «a medio confirmar» (no queda seleccionada)');
+  await page.click('#psg-bar [data-k="plan"]');   // dejar el plan como estaba
   console.log('       motivos:', info.badges.join(' | '));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cartas-seleccion.png') });
 

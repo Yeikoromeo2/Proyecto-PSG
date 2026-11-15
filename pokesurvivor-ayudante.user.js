@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.17
+// @version      0.9.18
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.17';
+  const VERSION = '0.9.18';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -2201,6 +2201,7 @@
     function regenerate() {
       const pl = G.Game.player;
       if (!shown || !pl || !screenOpen()) return;
+      disarm();   // al volver a sacar las cartas (Ver todas/modo libre) se reinicia el «a medio confirmar»
       regenerating = true;
       let list;
       try { list = G.LevelUp.offer(pl); } finally { regenerating = false; }
@@ -2307,6 +2308,7 @@
     function rescore() {
       const pl = G.Game.player;
       if (!lastList || !pl || !screenOpen()) return;
+      disarm();   // al repuntuar (Plan/estilo ON/OFF) se reinicia la carta «a medio confirmar»
       annotate(G, lastList, pl, planFor(pl));
       document.querySelectorAll('#cards .psg-badge').forEach(b => b.remove());
       document.querySelectorAll('#cards .psg-best').forEach(b => b.classList.remove('psg-best'));
