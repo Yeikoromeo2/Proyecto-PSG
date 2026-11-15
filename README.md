@@ -127,6 +127,11 @@ poder con ese objeto.
   súbelo un poco con **+**.
 - **Si pones PAUSA el panel no desaparece:** puedes ajustar el intervalo con calma, sin que te ataquen. En
   pausa sólo se ajusta; vuelve a cambiar de poder al reanudar.
+- **En cooperativo también funciona (desde 0.9.15):** el auto-cambio sólo mueve **tus** poderes (como pulsar
+  1·2·3·4 tú), así que no afecta a tu compañero ni necesita que él tenga el ayudante. Lo que **no** se puede en
+  coop es cambiar qué cartas de poder te salen al subir («Ver todas»/modo libre): ahí el nivel va sincronizado
+  por la red del juego y lo valida el servidor, y elegir fuera de las cartas ofrecidas podría descuadrar la
+  partida o arriesgar un baneo. Por eso eso sigue desactivado en coop.
 
 ### Ayuda contra jefes (desde 0.9.12)
 

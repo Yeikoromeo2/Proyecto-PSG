@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.14
+// @version      0.9.15
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.14';
+  const VERSION = '0.9.15';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -2451,12 +2451,14 @@
       go.classList.toggle('on', swOn);
       const st = G.Game && G.Game.state;
       const paused = st === 'pause' || st === 'paused' || isShown('scr-pause');
+      const coop = !!(G.Coop && G.Coop.active);
       const seg = (swClampMs(cfg.swMs) / 1000).toFixed(2).replace('.', ',');
       const note = swEl.querySelector('.psg-sw-note');
       note.textContent = pl && pl.hasItem && pl.hasItem('choiceband') ? 'Con Cinta Elección no se puede cambiar de poder.'
         : swSel.size < 2 ? 'Elige al menos 2 poderes para alternar.'
           : paused ? '⏸ En pausa: ajusta el intervalo con calma; al reanudar sigue cambiando.'
-            : swOn ? 'Cambiando cada ' + seg + ' s. Si un poder no llega a disparar, súbelo un poco (+).' : '';
+            : coop ? '🤝 Cooperativo: solo mueve TUS poderes, no afecta a tu compañero.' + (swOn ? ' Cada ' + seg + ' s.' : '')
+              : swOn ? 'Cambiando cada ' + seg + ' s. Si un poder no llega a disparar, súbelo un poco (+).' : '';
       swEl.classList.toggle('on', swOn);
     }
     function swTick() {
@@ -2464,8 +2466,11 @@
         const pl = G.Game && G.Game.player, st = G.Game && G.Game.state;
         const canSwitch = st === 'playing' || st === 'held';
         const paused = st === 'pause' || st === 'paused' || isShown('scr-pause');
-        // El panel sigue visible en pausa: así ajustas el intervalo sin que te ataquen.
-        const inRun = pl && pl.slots && pl.slots.length >= 1 && (canSwitch || paused);
+        const coop = !!(G.Coop && G.Coop.active);
+        const over = st === 'dead' || st === 'over' || st === 'menu';   // fin de partida / menú: nunca
+        // El panel sigue visible en pausa (ajustas sin que te ataquen) y en cooperativo (aunque el
+        // estado varíe por la red); el cambio real sólo ocurre jugando, y sólo mueve TU propio hueco.
+        const inRun = pl && pl.slots && pl.slots.length >= 1 && !over && (canSwitch || paused || coop);
         if (!inRun) { if (swEl) swEl.style.display = 'none'; return; }
         if (!swEl) swBuild();
         swEl.style.display = 'flex';

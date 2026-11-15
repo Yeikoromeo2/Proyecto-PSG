@@ -103,6 +103,16 @@
   `swClampMs(cfg.swMs)`. Respeta Cinta Elección (`pl.hasItem('choiceband')` → no cambia; el juego también lo bloquea).
 - Objetos del jugador: ahora en `pl.items` (array) con `pl.equip(id)`/`pl.hasItem(id)`; `pl.item` ya no existe.
 - Mismo archivo para app + extensión + Firefox: una sola implementación. Pausa de prueba: `G.Game.togglePause()`.
+- **Cooperativo (v0.9.15)**: en coop TÚ sigues siendo `G.Game.player` con tus huecos (los demás son `puppets`);
+  el auto-cambio sólo llama a `pl.setActive` sobre TU jugador → es 100% local y no afecta al compañero (como
+  pulsar 1·2·3·4 tú). `swTick` muestra el panel también si `G.Coop.active` (aunque el estado varíe por la red),
+  salvo en fin/menú (`dead/over/menu`); el cambio real sigue sólo en `playing`/`held`. Aviso «🤝 Cooperativo: sólo
+  mueve TUS poderes». NO se habilita cambiar el reparto de cartas en coop: «Ver todas»/modo libre siguen
+  bloqueados porque el nivel va sincronizado por red (`lu`/`lw`/`lr` + `Coop.localPicked`) y lo valida el servidor
+  (`/run/end`, `/admin/suspects`) → elegir fuera de las cartas ofrecidas NO es «100% tuyo» (riesgo de descuadre/baneo).
+- **No testeable aquí**: el coop necesita sala y otro jugador (como mega/dinamax); el coop va detrás de
+  `G.Coop && G.Coop.active` (falso en solo), así que las pruebas e2e en solo no lo tocan. Pedir al usuario que
+  lo confirme en una sala real. `G.Coop.active` es un getter y `G` es la fachada interna → no se puede simular en e2e.
 
 ## «Ver todas» en la subida de nivel (v0.9.10)
 - Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida
