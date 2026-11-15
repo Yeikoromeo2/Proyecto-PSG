@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéSurvivor · Ayudante de cartas (PSG)
 // @namespace    https://github.com/yeikoromeo2/proyecto-psg
-// @version      0.9.15
+// @version      0.9.16
 // @description  Analiza tu colección (naturaleza, habilidad, combos) y te ayuda con las cartas de nivel: recomendación, elección automática y modo libre sin ranking.
 // @match        https://pokesurvivor.com/*
 // @match        https://www.pokesurvivor.com/*
@@ -57,7 +57,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.15';
+  const VERSION = '0.9.16';
   // Ventana del juego. En modo page es `window`. En el modo content de Firefox es la que hay debajo
   // de la Xray, y según el gestor se llega por un sitio u otro (en Violentmonkey, `unsafeWindow`
   // puede ser la propia ventana aislada): se prueban todos y se usa el que de verdad ve el juego.
@@ -1850,8 +1850,8 @@
       try {
         const pl = unX(plArg), k = n || 3;
         let list;
-        if (showAll && pl && !coopActive()) list = toPage(allOffer(pl));
-        else if (cfg.free && pl && !coopActive()) list = toPage(freeOffer(pl, k));
+        if (showAll && pl) list = toPage(allOffer(pl));          // «Ver todas» también en coop (elección local)
+        else if (cfg.free && pl) list = toPage(freeOffer(pl, k));
         else { list = unX(origOffer.call(G.LevelUp, pl, k)); if (pl) annotate(G, list, pl, planFor(pl)); }
         lastList = list;
         const my = ++token;
@@ -2199,7 +2199,6 @@
           else clearTimeout(autoT);
         });
         onTap(bar.querySelector('[data-k="free"]'), () => {
-          if (!cfg.free && coopActive()) { toast('El modo libre no se usa en cooperativo'); return; }
           cfg.free = !cfg.free; saveCfg(); paintBar();
           // Al encenderlo se cambian las cartas abiertas; al apagarlo se quedan las que hay
           // (si no, apagar y encender sería un «cambiar opciones» gratis).
@@ -2207,19 +2206,21 @@
         });
         onTap(bar.querySelector('[data-k="style"]'), () => {
           cfg.style = STYLE_ORDER[(STYLE_ORDER.indexOf(cfg.style) + 1) % STYLE_ORDER.length]; saveCfg();
-          if (cfg.free && !coopActive()) regenerate(); else rescore();
+          if (cfg.free || showAll) regenerate(); else rescore();
           paintBar();
         });
         onTap(bar.querySelector('[data-k="plan"]'), () => {
           cfg.plan = !cfg.plan; saveCfg();
           // Con el modo libre las cartas salen del plan: se vuelven a sacar; si no, sólo se repuntúan.
-          if (cfg.free && !coopActive()) regenerate(); else rescore();
+          if (cfg.free || showAll) regenerate(); else rescore();
           paintBar();
         });
         onTap(bar.querySelector('[data-k="all"]'), () => {
-          if (coopActive()) { toast('«Ver todas» no se usa en cooperativo'); return; }
           showAll = !showAll;
-          if (showAll) toast('Ver todas: esta partida ya no sube al ranking');
+          // En coop sigue marcando __psgForced: NO sube TU ranking; si eres invitado, el anfitrión
+          // podría subir la de grupo (su cliente llama a submitGroup sin tu bloqueo). Sin riesgo de baneo.
+          if (showAll) toast(coopActive() ? 'Ver todas (coop): tu ranking no sube; de anfitrión, tampoco el de grupo.'
+            : 'Ver todas: esta partida ya no sube al ranking');
           regenerate();     // vuelve a sacar la pantalla (todas clasificadas, o de vuelta a lo normal)
           paintBar();
         });

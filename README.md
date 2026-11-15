@@ -109,7 +109,13 @@ Los dos sirven para comparar tus Pokémon, no son números exactos de la partida
   posibles de esa subida, **clasificadas en secciones** (⚔️ Ataques y evoluciones,
   ✨ Potenciadores, 🛡️ Mejoras de partida), con scroll y la recomendada marcada. Es para
   elegir tú con todo a la vista; **no elige sola** y, como quita el azar, **esa partida
-  tampoco sube al ranking**. En cooperativo no se puede activar.
+  tampoco sube al ranking**.
+- **En cooperativo también se puede (desde 0.9.16):** elegir la carta es **local** (cada jugador
+  arma su propia subida), así que ver todas y escoger **no afecta a tu compañero** ni descuadra la
+  partida, y el servidor no distingue tu elección de un buen azar (**sin riesgo de baneo**). Se
+  mantiene la marca de **no subir al ranking**. Un matiz: esa marca bloquea **tu** envío; si eres
+  **invitado** y el **anfitrión** sube la puntuación de grupo, esa de grupo podría colarse igual. Para
+  tenerlo 100% protegido, usa «Ver todas» cuando **tú** seas el anfitrión de la sala.
 
 Los interruptores aparecen encima de las cartas y se recuerdan en tu navegador.
 
@@ -128,10 +134,7 @@ poder con ese objeto.
 - **Si pones PAUSA el panel no desaparece:** puedes ajustar el intervalo con calma, sin que te ataquen. En
   pausa sólo se ajusta; vuelve a cambiar de poder al reanudar.
 - **En cooperativo también funciona (desde 0.9.15):** el auto-cambio sólo mueve **tus** poderes (como pulsar
-  1·2·3·4 tú), así que no afecta a tu compañero ni necesita que él tenga el ayudante. Lo que **no** se puede en
-  coop es cambiar qué cartas de poder te salen al subir («Ver todas»/modo libre): ahí el nivel va sincronizado
-  por la red del juego y lo valida el servidor, y elegir fuera de las cartas ofrecidas podría descuadrar la
-  partida o arriesgar un baneo. Por eso eso sigue desactivado en coop.
+  1·2·3·4 tú), así que no afecta a tu compañero ni necesita que él tenga el ayudante.
 
 ### Ayuda contra jefes (desde 0.9.12)
 

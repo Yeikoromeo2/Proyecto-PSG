@@ -103,16 +103,24 @@
   `swClampMs(cfg.swMs)`. Respeta Cinta Elección (`pl.hasItem('choiceband')` → no cambia; el juego también lo bloquea).
 - Objetos del jugador: ahora en `pl.items` (array) con `pl.equip(id)`/`pl.hasItem(id)`; `pl.item` ya no existe.
 - Mismo archivo para app + extensión + Firefox: una sola implementación. Pausa de prueba: `G.Game.togglePause()`.
-- **Cooperativo (v0.9.15)**: en coop TÚ sigues siendo `G.Game.player` con tus huecos (los demás son `puppets`);
-  el auto-cambio sólo llama a `pl.setActive` sobre TU jugador → es 100% local y no afecta al compañero (como
-  pulsar 1·2·3·4 tú). `swTick` muestra el panel también si `G.Coop.active` (aunque el estado varíe por la red),
-  salvo en fin/menú (`dead/over/menu`); el cambio real sigue sólo en `playing`/`held`. Aviso «🤝 Cooperativo: sólo
-  mueve TUS poderes». NO se habilita cambiar el reparto de cartas en coop: «Ver todas»/modo libre siguen
-  bloqueados porque el nivel va sincronizado por red (`lu`/`lw`/`lr` + `Coop.localPicked`) y lo valida el servidor
-  (`/run/end`, `/admin/suspects`) → elegir fuera de las cartas ofrecidas NO es «100% tuyo» (riesgo de descuadre/baneo).
-- **No testeable aquí**: el coop necesita sala y otro jugador (como mega/dinamax); el coop va detrás de
-  `G.Coop && G.Coop.active` (falso en solo), así que las pruebas e2e en solo no lo tocan. Pedir al usuario que
-  lo confirme en una sala real. `G.Coop.active` es un getter y `G` es la fachada interna → no se puede simular en e2e.
+- **Cooperativo — auto-cambio (v0.9.15)**: en coop TÚ sigues siendo `G.Game.player` con tus huecos (los demás son
+  `puppets`); el auto-cambio sólo llama a `pl.setActive` sobre TU jugador → 100% local, no afecta al compañero (como
+  pulsar 1·2·3·4 tú). `swTick` muestra el panel también si `G.Coop.active` (aunque el estado varíe por la red), salvo
+  en fin/menú (`dead/over/menu`); el cambio real sigue sólo en `playing`/`held`. Aviso «🤝 Cooperativo».
+- **Cooperativo — «Ver todas» / modo libre (v0.9.16)**: AHORA SÍ se habilitan en coop (antes bloqueados). Es seguro
+  porque la elección de carta es LOCAL: sólo hay una llamada a `showLevelUp(level, Cards.offer(pl), cb)` y `offer`
+  se calcula en tu cliente; al elegir, `Coop.localPicked` sólo manda la señal `['lp']` a los compañeros (no la carta
+  ni el set ofrecido) → mismo `cb`, sin descuadre. `/run/end` sólo manda `{id,claim,ago}` (nada de cartas) y el
+  anti-trampas `clean()` NO mira qué cartas te ofrecieron → elegir fuera de la oferta es indistinguible de buen azar
+  → NO hay riesgo de baneo (igual que el modo libre en solo). Se mantiene `pl.__psgForced`.
+- **Matiz de ranking en coop (no verificable aquí)**: la protección «no sube» la hace el ayudante bloqueando
+  `G.Ranking.submitSolo`/**`submitGroup`** en TU cliente. De **anfitrión**, tu `submitGroup` queda bloqueado → la de
+  grupo tampoco sube. De **invitado**, el anfitrión llama a `submitGroup` sin tu bloqueo → la de grupo podría subir
+  igual (sólo fuga de ranking, NO baneo). El toast de «Ver todas» en coop lo avisa. Al quitar los candados
+  `coopActive()` del reparto, en solo no cambia nada (`coopActive()` ya era falso).
+- **No testeable aquí**: el coop necesita sala y otro jugador (como mega/dinamax); va detrás de `G.Coop && G.Coop.active`
+  (falso en solo), así que las e2e en solo no lo tocan. `G.Coop.active` es getter y `G` es la fachada interna → no se
+  puede simular en e2e. Pedir al usuario que lo confirme en una sala real.
 
 ## «Ver todas» en la subida de nivel (v0.9.10)
 - Botón `data-k="all"` en la barra de cartas: muestra TODAS las cartas posibles de esa subida
